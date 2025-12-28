@@ -1,0 +1,42 @@
+/* ===================================
+   주문 테이블 / 버튼 관련 스타일
+   =================================== */
+
+/* Order Table Small Buttons */
+.btn-xs {
+    padding: 3px 10px !important;
+    font-size: 0.75em !important;
+    border-radius: 6px !important;
+    line-height: 1.2 !important;
+    font-weight: 500 !important;
+}
+
+/* Order Status Dropdown */
+.form-select.order-status-dropdown {
+    font-size: 0.82em !important;
+    padding: 2px 8px !important;
+    height: 2em !important;
+    min-width: 90px !important;
+    max-width: 120px !important;
+    border-radius: 6px !important;
+}
+
+/* Order Table Styling */
+#snapshotOrdersBody tr {
+    transition: var(--transition);
+}
+
+#snapshotOrdersBody tr:hover {
+    background-color: var(--bg-card-header);
+}
+
+/* Order Type Badges */
+#snapshotOrdersBody .badge.bg-danger {
+    background-color: var(--danger-light) !important;
+    color: #b53a3a;
+}
+
+#snapshotOrdersBody .badge.bg-primary {
+    background-color: var(--primary-light) !important;
+    color: var(--primary-hover);
+}

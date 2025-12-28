@@ -1,0 +1,11 @@
+inquire_map:
+  NYQ: NYS
+  NYSE: NYS
+  NMS: NAS
+  NGM: NAS
+  PCX: AMS
+
+order_map:
+  NYS: NYSE
+  NAS: NASD
+  AMS: AMEX

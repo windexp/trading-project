@@ -1,0 +1,123 @@
+/* ===================================
+   전략 상세 / 스냅샷 / 모달 관련 스타일
+   =================================== */
+
+/* Strategy Details View */
+#strategy-details-view {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Strategy Header */
+.strategy-header {
+    background: var(--bg-secondary);
+    padding: 18px 22px;
+    border-radius: var(--border-radius);
+    box-shadow: var(--card-shadow);
+    margin-bottom: 20px;
+    border: 1px solid var(--border-color);
+}
+
+/* Price Display */
+#currentTickerPrice {
+    font-feature-settings: 'tnum';
+}
+
+#currentTickerPrice .text-success {
+    color: var(--success-color) !important;
+}
+
+#currentTickerPrice .text-danger {
+    color: var(--danger-color) !important;
+}
+
+.price-error {
+    margin-top: 8px;
+}
+
+/* Status Label */
+.status-label {
+    font-size: 1.1rem !important;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+/* Snapshot Status Dropdown */
+.status-dropdown {
+    font-size: 0.78em !important;
+    padding: 4px 12px !important;
+    height: 2.1em !important;
+    margin-left: 8px !important;
+    min-width: 140px !important;
+    max-width: 200px !important;
+    border-radius: 6px !important;
+}
+
+/* View Sections */
+.view-section { 
+    display: none; 
+}
+
+.view-section.active { 
+    display: block; 
+}
+
+/* Modals */
+.modal-content {
+    border: none;
+    border-radius: var(--border-radius);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.18);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border-color);
+    padding: 18px 22px;
+}
+
+.modal-header.modal-header-primary {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #4a6d9e 100%);
+    color: white;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.modal-header.modal-header-primary .btn-close {
+    filter: brightness(0) invert(1);
+    opacity: 0.8;
+}
+
+.modal-header.modal-header-primary .btn-close:hover {
+    opacity: 1;
+}
+
+.modal-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+}
+
+.modal-header.modal-header-primary .modal-title {
+    color: white;
+}
+
+.modal-body {
+    padding: 22px;
+}
+
+.modal-footer {
+    border-top: 1px solid var(--border-color);
+    padding: 14px 22px;
+    background: #fafbfc;
+}
+
+/* Code/JSON Editor */
+pre { 
+    background-color: #f8fafc;
+    padding: 14px; 
+    border-radius: var(--border-radius-sm); 
+    border: 1px solid var(--border-color); 
+    font-size: 0.8rem; 
+    margin-bottom: 0;
+    color: var(--text-primary);
+    font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+    line-height: 1.5;
+}

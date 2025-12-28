@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- 기능별로 분리된 CSS 파일들 -->
+    <link href="/static/css/style.css" rel="stylesheet">
+    <link href="/static/css/dashboard.css" rel="stylesheet">
+    <link href="/static/css/strategy.css" rel="stylesheet">
+    <link href="/static/css/order.css" rel="stylesheet">
+</head>
+<body>
+    <div class="main-container">
+        <!-- Header -->
+        <div class="page-header d-flex justify-content-between align-items-center">
+            <h1><i class="bi bi-graph-up-arrow me-2"></i>Dollar Mining</h1>
+            <span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i> System Online</span>
+        </div>
+
+        <!-- VIEW: Dashboard -->
+        <div id="dashboard-view" class="view-section active">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h4 class="mb-1 fw-bold">Dashboard</h4>
+                    <p class="text-muted mb-0 small">Manage your trading strategies</p>
+                </div>
+                <button class="btn btn-primary" onclick="openCreateModal()">
+                    <i class="bi bi-plus-lg me-2"></i>Create New Strategy
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-collection me-2"></i>Active Strategies</span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadStrategies()">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="strategyListBody">
+                                <!-- Loaded via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: Strategy Details -->
+        <div id="strategy-details-view" class="view-section">
+            <div class="strategy-header d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary" onclick="showDashboard()">
+                    <i class="bi bi-arrow-left"></i>
+                </button>
+                <div class="flex-grow-1">
+                    <h4 class="mb-1 fw-bold" id="detailStrategyName">Strategy Name</h4>
+                    <div class="d-flex gap-2">
+                        <span class="badge bg-info" id="detailStrategyType">Type</span>
+                        <span class="badge bg-success" id="detailStrategyStatus">Active</span>
+                    </div>
+                </div>
+                <div id="currentTickerPrice" class="text-end">
+                    <span class="text-muted">Loading...</span>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Left Col: Config & Actions -->
+                <div class="col-lg-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-gear me-2"></i>Configuration</span>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary" id="editConfigBtn" onclick="editStrategyConfig()">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-success" id="saveConfigBtn" onclick="saveStrategyConfig()" style="display:none;">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="cancelConfigBtn" onclick="cancelStrategyConfig()" style="display:none;">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <pre id="detailConfig">Loading...</pre>
+                            <textarea id="detailConfigEditor" class="form-control" rows="10" style="display:none; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header"><i class="bi bi-lightning me-2"></i>Quick Actions</div>
+                        <div class="card-body d-grid gap-2">
+                            <button class="btn btn-success" onclick="runStrategy()">
+                                <i class="bi bi-play-fill me-2"></i>Run Daily Routine
+                            </button>
+                            <button id="deactivateStrategyBtn" class="btn btn-warning" onclick="deactivateStrategy()">
+                                <i class="bi bi-pause-circle me-2"></i>Deactivate Strategy
+                            </button>
+                            <button id="activateStrategyBtn" class="btn btn-primary" onclick="activateStrategy()" style="display:none;">
+                                <i class="bi bi-play-circle me-2"></i>Activate Strategy
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteStrategy()">
+                                <i class="bi bi-trash me-2"></i>Delete Strategy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Col: Snapshots -->
+                <div class="col-lg-8">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-clock-history me-2"></i>Snapshot History</span>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-secondary" onclick="loadSnapshots()">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                <button class="btn btn-sm btn-primary" onclick="openCreateSnapshotModal()">
+                                    <i class="bi bi-plus-lg"></i>
+                                    Create Snapshot
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Date</th>
+                                            <th>Cycle</th>
+                                            <th>Status</th>
+                                            <th>Progress</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="snapshotListBody">
+                                        <!-- Loaded via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- MODAL: Create Strategy -->
+    <div class="modal fade" id="createModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header modal-header-primary">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Create New Strategy</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createForm">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Strategy Name</label>
+                                <input type="text" class="form-control" id="newStrategyName" placeholder="Enter strategy name" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Account</label>
+                                <select class="form-select" id="accountSelect" required></select>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label">Strategy Type</label>
+                            <select class="form-select" id="newStrategyType" onchange="toggleCreateFields()">
+                                <option value="VR">🔄 VR (Value Rebalancing)</option>
+                                <option value="InfBuy">📈 InfBuy (Infinite Buy)</option>
+                            </select>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- VR Fields -->
+                        <div id="createVrFields">
+                            <h6 class="text-primary mb-3"><i class="bi bi-sliders me-2"></i>VR Configuration</h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Ticker</label>
+                                    <input type="text" class="form-control" id="vr_ticker" value="TQQQ">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Advanced Option</label>
+                                    <select class="form-select" id="vr_advanced_option">
+                                        <option value="N" selected>N</option>
+                                        <option value="Y">Y</option>
+                                    </select>
+                                </div>                                
+                                <div class="col-md-6">
+                                    <label class="form-label">Initial Investment ($)</label>
+                                    <input type="number" class="form-control" id="vr_initial_investment" value="10000">
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Bi-weekly Investment ($)</label>
+                                    <input type="number" class="form-control" id="vr_periodic_investment" value="400">
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Upper Band(%)</label>
+                                    <input type="number" class="form-control" id="vr_u_band" value="15" step="0.1">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Lower Band(%)</label>
+                                    <input type="number" class="form-control" id="vr_l_band" value="15" step="0.1">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">G Factor</label>
+                                    <input type="number" class="form-control" id="vr_g" value="13" step="0.1">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Daily Limit Rate(%)</label>
+                                    <input type="number" class="form-control" id="vr_limit" value="2" step="0.01">
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- InfBuy Fields -->
+                        <div id="createInfBuyFields" style="display:none;">
+                            <h6 class="text-primary mb-3"><i class="bi bi-sliders me-2"></i>InfBuy Configuration</h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Ticker</label>
+                                    <input type="text" class="form-control" id="inf_ticker" placeholder="SOXL">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Initial Investment ($)</label>
+                                    <input type="number" class="form-control" id="inf_investment" value="10000">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Division</label>
+                                    <input type="number" class="form-control" id="inf_division" value="20">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Sell Gain (%)</label>
+                                    <input type="number" class="form-control" id="inf_sell_gain" value="20" step="1" min="0" max="100">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Reinvestment Rate (%)</label>
+                                    <input type="number" class="form-control" id="inf_reinvestment_rate" value="50" step="1" min="0" max="100">
+                                    <small class="text-muted">sell profit to reinvest</small>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitCreateStrategy()">
+                        <i class="bi bi-check-lg me-2"></i>Create Strategy
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Snapshot Details -->
+    <div class="modal fade" id="snapshotModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-camera me-2"></i>Snapshot Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0"><i class="bi bi-database me-2"></i>State Data</h6>
+                            <div>
+                                <button class="btn btn-sm btn-outline-primary" id="editSnapshotBtn" onclick="enableSnapshotEdit()">
+                                    <i class="bi bi-pencil me-1"></i>Edit
+                                </button>
+                                <button class="btn btn-sm btn-success" id="saveSnapshotBtn" onclick="saveSnapshotEdit()" style="display:none;">
+                                    <i class="bi bi-check-lg me-1"></i>Save
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="cancelSnapshotBtn" onclick="cancelSnapshotEdit()" style="display:none;">
+                                    Cancel
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger ms-2" id="deleteSnapshotBtn" onclick="deleteSnapshot()">
+                                    <i class="bi bi-trash me-1"></i>Delete
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row mb-2">
+                            <div class="col-md-4 d-flex align-items-end gap-2">
+                                <label class="form-label status-label mb-0">Status</label>
+                                <select class="form-select form-select-sm status-dropdown" id="snapshotDetailStatus" disabled style="width:auto; font-size:0.92em; min-width:110px; margin-left:6px;">
+                                    <option value="MANUAL">MANUAL</option>
+                                    <option value="INIT">INIT</option>
+                                    <option value="PENDING">PENDING</option>
+                                    <option value="IN_PROGRESS">IN PROGRESS</option>
+                                    <option value="COMPLETED">COMPLETED</option>
+                                    <option value="FAILED">FAILED</option>
+                                </select>
+                            </div>
+                        </div>
+                        <pre id="snapshotStateData">Loading...</pre>
+                        <textarea id="snapshotStateEditor" class="form-control" rows="10" style="display:none; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
+                    </div>
+                    <div>
+                        <h6 class="mb-3"><i class="bi bi-list-ul me-2"></i>Orders</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm small" style="font-size:0.85em; text-align:center;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:90px;">Time</th>
+                                        <th style="width:60px;">Type</th>
+                                        <th style="width:80px;">Ticker</th>
+                                        <th style="width:90px;">Price</th>
+                                        <th style="width:90px;">Qty</th>
+                                        <th style="width:90px;">Status</th>
+                                        <th style="width:80px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="snapshotOrdersBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Create Snapshot -->
+    <div class="modal fade" id="createSnapshotModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header modal-header-primary">
+                    <h5 class="modal-title"><i class="bi bi-camera-plus me-2"></i>Create Snapshot</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" id="snapshotStatus">
+                                <option value="MANUAL" selected>MANUAL</option>
+                                <option value="INIT">INIT</option>
+                                <option value="PENDING">PENDING</option>
+                                <option value="IN_PROGRESS">IN PROGRESS</option>
+                                <option value="COMPLETED">COMPLETED</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Cycle (optional)</label>
+                            <input type="number" class="form-control" id="snapshotCycle" placeholder="auto">
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label">Progress JSON</label>
+                        <textarea id="snapshotProgress" class="form-control" rows="10" placeholder="{ }" style="font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
+                        <small class="text-muted">Leave empty for an empty object.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitCreateSnapshot()">
+                        <i class="bi bi-check-lg me-2"></i>Create Snapshot
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/strategy.js"></script>
+    <script src="/static/js/order.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

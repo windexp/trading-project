@@ -1,0 +1,42 @@
+/* ===================================
+   대시보드 / 전략 리스트 관련 스타일
+   =================================== */
+
+/* Dashboard View */
+#dashboard-view {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Strategy List Table */
+.clickable-row { 
+    cursor: pointer; 
+    transition: var(--transition);
+}
+
+.clickable-row:hover { 
+    background-color: var(--bg-card-header) !important;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+}
+
+.empty-state i {
+    font-size: 2.5rem;
+    margin-bottom: 14px;
+    opacity: 0.4;
+    color: var(--text-secondary);
+}
+
+.empty-state p {
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+}
+
+.empty-state small {
+    font-size: 0.8rem;
+}

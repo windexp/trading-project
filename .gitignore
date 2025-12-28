@@ -1,0 +1,54 @@
+# Environment Variables
+.env
+
+# Security / Credentials
+token_cache.json
+secrets/
+
+# Database
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+solx_history_debug.json
+# API Config & Sensitive files
+# api_config.yaml
+settings.yaml
+secret_manager.py
+
+# macOS
+.DS_Store
+
+# Cache
+.cache/
+*.cache
+
+# Pytest
+.pytest_cache/
+.coverage
+
+# Windows
+Thumbs.db
+# debug
+*debug*
+# backups
+*backup*
+# Legacy services
+src/
+
+# test scripts  
+scripts/

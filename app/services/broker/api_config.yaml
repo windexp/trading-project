@@ -1,0 +1,91 @@
+oversea:
+  base_url: https://openapi.koreainvestment.com:9443/
+
+  api_map:
+    balance:
+      url: uapi/overseas-stock/v1/trading/inquire-balance
+      tr_id: TTTS3012R
+    ps_amount:
+      url: uapi/overseas-stock/v1/trading/inquire-psamount
+      tr_id: TTTS3007R
+    usd-balance:
+      url: uapi/overseas-stock/v1/trading/foreign-margin
+      tr_id: TTTC2101R
+    price:
+      url: uapi/overseas-price/v1/quotations/price
+      tr_id: HHDFS00000300
+    detail_price:
+      url: uapi/overseas-price/v1/quotations/price-detail
+      tr_id: HHDFS76200200
+    buy:
+      url: uapi/overseas-stock/v1/trading/order
+      tr_id: TTTT1002U
+    sell:
+      url: uapi/overseas-stock/v1/trading/order
+      tr_id: TTTT1006U
+    dailyprice:
+      url: uapi/overseas-price/v1/quotations/dailyprice
+      tr_id: HHDFS76240000
+    chartprice:
+      url: uapi/overseas-price/v1/quotations/inquire-time-itemchartprice
+      tr_id: HHDFS76950200
+    currency:
+      url: /uapi/overseas-price/v1/quotations/inquire-daily-chartprice
+      tr_id: FHKST03030100
+    transaction:
+      url: /uapi/overseas-stock/v1/trading/inquire-ccnl
+      tr_id: TTTS3035R
+    int-margin:
+      url: /uapi/domestic-stock/v1/trading/intgr-margin
+      tr_id: TTTC0869R
+    kor_buy:
+      url: /uapi/domestic-stock/v1/trading/order-cash
+      tr_id: TTTC0802U
+    kor_sel:
+      url: /uapi/domestic-stock/v1/trading/order-cash
+      tr_id: TTTC0801U
+domestic:
+  url: https://openapi.koreainvestment.com:9443/
+  api_map:
+    balance:
+      url: uapi/overseas-stock/v1/trading/inquire-balance
+      tr_id: TTTS3012R
+    ps_amount:
+      url: uapi/overseas-stock/v1/trading/inquire-psamount
+      tr_id: TTTS3007R
+    usd-balance:
+      url: uapi/overseas-stock/v1/trading/foreign-margin
+      tr_id: TTTC2101R
+    price:
+      url: uapi/overseas-price/v1/quotations/price
+      tr_id: HHDFS00000300
+    detail_price:
+      url: uapi/overseas-price/v1/quotations/price-detail
+      tr_id: HHDFS76200200
+    buy:
+      url: uapi/overseas-stock/v1/trading/order
+      tr_id: TTTT1002U
+    sell:
+      url: uapi/overseas-stock/v1/trading/order
+      tr_id: TTTT1006U
+    dailyprice:
+      url: uapi/overseas-price/v1/quotations/dailyprice
+      tr_id: HHDFS76240000
+    chartprice:
+      url: uapi/overseas-price/v1/quotations/inquire-time-itemchartprice
+      tr_id: HHDFS76950200
+    currency:
+      url: /uapi/overseas-price/v1/quotations/inquire-daily-chartprice
+      tr_id: FHKST03030100
+    transaction:
+      url: /uapi/overseas-stock/v1/trading/inquire-ccnl
+      tr_id: TTTS3035R
+    int-margin:
+      url: /uapi/domestic-stock/v1/trading/intgr-margin
+      tr_id: TTTC0869R
+    kor_buy:
+      url: /uapi/domestic-stock/v1/trading/order-cash
+      tr_id: TTTC0802U
+    kor_sel:
+      url: /uapi/domestic-stock/v1/trading/order-cash
+      tr_id: TTTC0801U
