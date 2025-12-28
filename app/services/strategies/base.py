@@ -47,7 +47,7 @@ class BaseStrategy(ABC):
             .order_by(desc(StrategySnapshot.created_at))\
             .first()
 
-    def _sync_last_orders(self, snapshot: StrategySnapshot):
+    def _sync_snapshot_orders(self, snapshot: StrategySnapshot, start_offset: int = 1) -> None:
         """Check status of orders in the snapshot and update DB."""
         orders = self.db.query(Order).filter(Order.snapshot_id == snapshot.id).all()
         if not orders:
@@ -57,14 +57,14 @@ class BaseStrategy(ABC):
         
         kst = pytz.timezone('Asia/Seoul')
         # Get date range based on snapshot type
-        snapshot_date = snapshot.created_at.replace(tzinfo=pytz.UTC).astimezone(kst)
+        snapshot_date = snapshot.created_at.replace(tzinfo=pytz.UTC).astimezone(kst) - timedelta(days=start_offset)
         now_kst = datetime.now(kst)
         
         # Get min/max dates from orders for more accurate range
         min_dt = min(order.updated_at for order in orders)
         max_dt = max(order.updated_at for order in orders)
-        min_kst = min_dt.replace(tzinfo=pytz.UTC).astimezone(kst) - timedelta(days=1)
-        max_kst = max_dt.replace(tzinfo=pytz.UTC).astimezone(kst) + timedelta(days=1)
+        min_kst = min_dt.replace(tzinfo=pytz.UTC).astimezone(kst) 
+        max_kst = max_dt.replace(tzinfo=pytz.UTC).astimezone(kst) 
         
         start_date = min(snapshot_date, min_kst).strftime("%Y%m%d")
         end_date = max_kst.strftime("%Y%m%d")
@@ -84,35 +84,38 @@ class BaseStrategy(ABC):
                 print(f"  Order {order.order_id} Not Found in History")
     
         # Check if all orders are finalized (no more SUBMITTED/PENDING)
+        self.db.commit()
         all_finalized = all(
             order.order_status != OrderStatus.SUBMITTED
             for order in orders
         )
+        return all_finalized
+        # if all_finalized and snapshot.status == "IN_PROGRESS":
+        #     snapshot.status = "COMPLETED"
+        #     print(f"  ✅ All orders finalized. Snapshot marked as COMPLETED")
         
-        if all_finalized and snapshot.status == "IN_PROGRESS":
-            snapshot.status = "COMPLETED"
-            print(f"  ✅ All orders finalized. Snapshot marked as COMPLETED")
-        
-        self.db.commit()
+        # self.db.commit()
 
-    def _place_orders(self, snapshot: StrategySnapshot) -> bool:
+    def _place_orders(self, snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
         """
         Place orders for the given snapshot.
-        Returns True if successful, False if market is closed.
+        Returns a dict with results {"success": False, "submitted_orders": 0, "accepted_orders": 0, "is_holiday": False}
+        
         """
+        result = {"success": False, "submitted_orders": 0, "accepted_orders": 0, "is_holiday": False, "error_msg": None}
         try:
             # 1. Generate Orders
-            orders = self._generate_orders(snapshot.progress)
+            orders = self._generate_orders(snapshot.progress, current_price)
+            result['submitted_orders'] = len(orders)
             if not orders:
                 print("  No orders to place")
-                snapshot.status = "COMPLETED"
                 snapshot.executed_at = None
                 self.db.commit()
-                return True
+                result["success"] = True
+                return result
             
             # 2. Place all orders
             print(f"  Placing {len(orders)} orders...")
-            orders_placed = 0
             msg = []
             
             for order_data in orders:
@@ -127,49 +130,39 @@ class BaseStrategy(ABC):
                     if res and res.get('outcome') == RequestOutcome.ACCEPTED:
                         print(f"    ✅ Order Accepted: {res['order_id']}")
                         snapshot.progress['msg'] = None
+                        result['accepted_orders'] += 1
                         flag_modified(snapshot, 'progress')
-                        self.db.commit()
+                        
                     else:
                         error_msg = res.get('error_msg', 'Unknown error') if res else 'No response'
+                        result['error_msg'] = error_msg
                         error_code = res.get('error_code', '') if res else ''
                         msg.append(f"{error_code} - {error_msg}")
                         snapshot.progress['msg'] = msg
                         flag_modified(snapshot, 'progress')
-                        self.db.commit()
-                        
                         if res.get('is_holiday', False):
                             print(f"  📅 Market closed ({error_code}: {error_msg}). Keeping snapshot as PENDING.")
                             snapshot.executed_at = None
-                            return False
+                            result['is_holiday'] = True
+                            break
                         else:
-                            print(f"    ⚠️ Order Failed: {error_code} - {error_msg}")
+                            print(f"    ⚠️ Order Rejected: {error_code} - {error_msg}")
                             continue
 
                     # Order succeeded
                     self._save_order(res, snapshot, order_data)
                     print(f"    ✅ Order Placed: {res['order_id']}")
-                    orders_placed += 1
+                    
                     
                 except Exception as e:
                     print(f"    ❌ Exception: {e}")
                     
                 time.sleep(0.1)  # To avoid hitting rate limits
-            
-            # 3. Update snapshot status and executed_at
-            if orders_placed > 0:
-                snapshot.status = "IN_PROGRESS"
-                kst = pytz.timezone('Asia/Seoul')
-                snapshot.executed_at = datetime.now(tz=pytz.UTC).astimezone(kst)
-                print(f"  ✅ {orders_placed}/{len(orders)} orders placed successfully. executed_at set.")
-            else:
-                snapshot.status = "FAILED"
-                snapshot.progress['error'] = "All orders failed"
-                flag_modified(snapshot, 'progress')
-                snapshot.executed_at = None
-                print(f"  ❌ No orders were placed successfully. executed_at cleared.")
-            
+            if result['accepted_orders'] > 0:
+                result["success"] = True
             self.db.commit()
-            return orders_placed > 0
+                        
+            return result
             
         except Exception as e:
             print(f"❌ Error placing orders: {e}")

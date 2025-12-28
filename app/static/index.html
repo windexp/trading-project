@@ -203,12 +203,9 @@
                                     <input type="text" class="form-control" id="vr_ticker" value="TQQQ">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Advanced Option</label>
-                                    <select class="form-select" id="vr_advanced_option">
-                                        <option value="N" selected>N</option>
-                                        <option value="Y">Y</option>
-                                    </select>
-                                </div>                                
+                                    <label class="form-label">G Factor</label>
+                                    <input type="number" class="form-control" id="vr_g" value="13" step="0.1">
+                                </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Initial Investment ($)</label>
                                     <input type="number" class="form-control" id="vr_initial_investment" value="10000">
@@ -228,13 +225,21 @@
                                     <input type="number" class="form-control" id="vr_l_band" value="15" step="0.1">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">G Factor</label>
-                                    <input type="number" class="form-control" id="vr_g" value="13" step="0.1">
+                                    <label class="form-label">Daily Buy Limit(%/pool)</label>
+                                    <input type="number" class="form-control" id="vr_buy_limit" value="2" step="0.01">
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Daily Sell Limit(%/Qty)</label>
+                                    <input type="number" class="form-control" id="vr_sell_limit" value="2" step="0.01">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Daily Limit Rate(%)</label>
-                                    <input type="number" class="form-control" id="vr_limit" value="2" step="0.01">
-                                </div>
+                                    <label class="form-label">Advanced Option</label>
+                                    <select class="form-select" id="vr_advanced_option">
+                                        <option value="N" selected>N</option>
+                                        <option value="Y">Y</option>
+                                    </select>
+                                </div>                                
 
                             </div>
                         </div>

@@ -1,11 +1,12 @@
+from enum import Enum
 import enum
 
-class StrategyStatus(str, enum.Enum):
+class StrategyStatus(str, Enum):
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
     TERMINATED = "TERMINATED"
 
-class OrderStatus(str, enum.Enum):
+class OrderStatus(str, Enum):
     SUBMITTED = "SUBMITTED"
     FILLED = "FILLED"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -13,15 +14,15 @@ class OrderStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
 
-class OrderType(str, enum.Enum):
+class OrderType(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
 
-class RequestOutcome(str, enum.Enum):
+class RequestOutcome(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
 
-class SnapshotStatus(str, enum.Enum):
+class SnapshotStatus(str, Enum):
     INIT = "INIT"
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"

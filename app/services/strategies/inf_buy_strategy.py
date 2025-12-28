@@ -11,7 +11,7 @@ from app.services.broker.base import BaseBroker
 from app.services.strategies.base import BaseStrategy
 from enum import Enum
 import pytz
-from app.models.enums import RequestOutcome
+from app.models.enums import RequestOutcome, SnapshotStatus
 
 
 
@@ -27,7 +27,7 @@ class OrderSubType(str, Enum):
 
 class InfBuyStrategy(BaseStrategy):
     def debug_last_order_sync(self):
-        """마지막 스냅샷의 orders와 _sync_last_orders 결과를 출력"""
+        """마지막 스냅샷의 orders와 _sync_snapshot_orders 결과를 출력"""
         last_snapshot = self._get_last_snapshot()
         if not last_snapshot:
             print("No snapshot found.")
@@ -38,8 +38,8 @@ class InfBuyStrategy(BaseStrategy):
         for o in orders:
             print(f"  OrderID: {o.order_id}, Status: {o.order_status}, Qty: {o.order_qty}, Price: {o.order_price}")
 
-        print("\n[DEBUG] Running _sync_last_orders...")
-        self._sync_last_orders(last_snapshot)
+        print("\n[DEBUG] Running _sync_snapshot_orders...")
+        self._sync_snapshot_orders(last_snapshot)
     """
     Infinite Buy Strategy Implementation (V2).
     Uses new Strategy/Snapshot/Order schema.
@@ -56,86 +56,153 @@ class InfBuyStrategy(BaseStrategy):
         self.reinvestment_rate = float(self.params.get('reinvestment_rate', 50)) / 100.0  # New param
 
     def execute_daily_routine(self):
+        
         print(f"🚀 Starting InfBuy Routine for {self.strategy.name} ({self.ticker})")
         
+        # 0. Get Current Price
+        try:
+            raw_price = self.broker.get_price(self.ticker)
+            price_info = self.broker.parse_price_response(raw_price)
+            if price_info['price'] is None:
+                print(f"❌ Failed to get price for {self.ticker}. Response: {price_info}")
+                raise ValueError(f"Failed to get current price. Response: {price_info}")
+            current_price = price_info['price']
+            print(f"  ✓ Current Price: {current_price}")
+        except Exception as e:
+            print(f"❌ [Error] Failed to get current price: {e}")
+            raise
+
         # 1. Get Last Snapshot
         last_snapshot = self._get_last_snapshot()
         
-        # 2. Handle existing snapshot based on status
-        if last_snapshot:
-            print(f"Found previous snapshot (Cycle {last_snapshot.cycle}, Created: {last_snapshot.created_at})")
-            
-            # case pending, in_progress, failed
-            if last_snapshot.status == "PENDING":
-                print(f"⏸️  Found PENDING snapshot. Retrying order placement...")
-                success = self._place_orders(last_snapshot)
-                if success:
-                    print("✅ Orders successfully placed")
-                else:
-                    print("⚠️  Still unable to place orders (market may be closed)")
-                return
-            
-            elif last_snapshot.status in ["IN_PROGRESS"]:
-                self._sync_last_orders(last_snapshot)
+        # 2. Check Last Snapshot Status
 
-            
-            elif last_snapshot.status == "FAILED":
-                print("❌ Last snapshot failed. Manual intervention may be needed.")
-                return
-            
-            # case completed or or completed sync after in_progress orders
-            if last_snapshot.status == "COMPLETED":
-                print("✅ Last snapshot orders are completed.")
-                current_state = self._calculate_next_state(last_snapshot)
-                cycle = current_state.get('cycle', last_snapshot.cycle)        
-            else:
-                return                    
-
-        else:
+        if not last_snapshot:
             # First time
             print("No previous snapshot found. Initializing new strategy.")
-            current_state = {
-                "current_t": 0,
-                "star": self.sell_gain,
-                "investment": self.initial_investment,
-                "unit_investment": self.initial_investment / self.division if self.initial_investment else 0,
-                "avg_price": 0,
-                "quantity": 0,
-                "balance": self.initial_investment, 
-                "equity": self.initial_investment,
-                "daily_profit": 0,
-                "cycle": 0
-            }
-            cycle = 0
-
-
-        # 3. Place order and Create New Snapshot if needed
-        if last_snapshot and last_snapshot.status == "PENDING":
-            print(f"📸 Used Existing Snapshot (ID: {last_snapshot.id}, Status: PENDING)")
-            success = self._place_orders(last_snapshot)
-            
-        else:            
-            new_snapshot = StrategySnapshot(
-                strategy_id=self.strategy.id,
-                status="PENDING",
-                cycle=cycle,
-                progress=current_state
-            )
-            print(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: PENDING)")
-            self.db.add(new_snapshot)
-            self.db.commit()
-            success = self._place_orders(new_snapshot)
-            
-        
-
-        
-        if success:
-            print("✅ Routine Completed")
+            last_snapshot = self._create_initial_snapshot()
+            self.db.refresh(last_snapshot)
+            # snapshot is COMPLETED. Proceed to create new snapshot below.
         else:
-            print(f"⏸️  Routine Pending (will retry on next execution)")
+            print(f"Found previous snapshot (Cycle {last_snapshot.cycle}, Created: {last_snapshot.created_at})")
+        # 3. Handle based on status
+        # if FAILED, log and exit
+        # else
+            # Steps:
+                # Step1: if IN_PROGRESS -> sync orders -> if all finalized mark completed
+                # Step2: if COMPLETED -> calculate next state -> place orders -> create new snapshot and set pending
+                # Step3: if PENDING -> try placing orders and set IN_PROGRESS if any success
+        if last_snapshot.status == SnapshotStatus.FAILED:
+            print("❌ Last snapshot failed. Manual intervention may be needed.")
+            return
+        
+        else:
+            # Step 1: If IN_PROGRESS, sync orders
+            if last_snapshot.status == SnapshotStatus.IN_PROGRESS:
+                all_finalized = self._sync_snapshot_orders(last_snapshot)
+                if all_finalized and last_snapshot.status == SnapshotStatus.IN_PROGRESS:
+                    last_snapshot.status = SnapshotStatus.COMPLETED
+                    print(f"  ✅ All orders finalized. Snapshot marked as COMPLETED")
+                else:
+                    print(f"  ⚠️  Some orders are still pending. Snapshot remains IN_PROGRESS")                    
+                self.db.commit()
+            # Step 2: If COMPLETED, calculate next state and create new PENDING snapshot
+            if last_snapshot.status == SnapshotStatus.COMPLETED:
+                print("✅ Last snapshot orders are completed.")
+                new_state = self._calculate_next_state(last_snapshot)
+                cycle = new_state.get('cycle', last_snapshot.cycle)   
+                new_snapshot = StrategySnapshot(
+                strategy_id=self.strategy.id,
+                status=SnapshotStatus.PENDING,
+                cycle=cycle,
+                progress=new_state
+                )
+                print(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: PENDING)")
+                self.db.add(new_snapshot)     
+                last_snapshot = new_snapshot  # Update reference for Step 3
+                self.db.commit()
+            # Step 3: If PENDING, try placing orders
+            if last_snapshot.status == SnapshotStatus.PENDING:
+                print(f"⏸️  Found PENDING snapshot. Retrying order placement...")
+                order_result = self._place_orders(last_snapshot, current_price)
+                success = order_result.get('success', False)
+                if success:
+                    last_snapshot.status = SnapshotStatus.IN_PROGRESS
+                    kst = pytz.timezone('Asia/Seoul')
+                    last_snapshot.executed_at = datetime.now(tz=pytz.UTC).astimezone(kst)
+                    print(f"  ✅ Orders placed successfully. executed_at set.")
+                else:
+                    last_snapshot.executed_at = None
+                    if order_result.get('is_holiday', False):
+                        print(f"  📅 Market closed. Keeping snapshot as PENDING.")
+                    else:                           
+                        last_snapshot.status = SnapshotStatus.FAILED
+                        last_snapshot.progress['error_msg'] = order_result.get('error_msg', 'Unknown error during order placement')
+                        flag_modified(last_snapshot, 'progress')
+                        print(f"  ❌ No orders were placed successfully. executed_at cleared.")
+            self.db.commit()                
+            return
+
+        
+        
+        # case completed or or completed sync after in_progress orders
 
 
-    def _calculate_next_state(self, last_snapshot: StrategySnapshot) -> Dict[str, Any]:
+
+
+
+        # # 3. Place order and Create New Snapshot if needed
+        # if last_snapshot and last_snapshot.status == "PENDING":
+        #     print(f"📸 Used Existing Snapshot (ID: {last_snapshot.id}, Status: PENDING)")
+        #     success = self._place_orders(last_snapshot)
+            
+        # else:            
+        #     new_snapshot = StrategySnapshot(
+        #         strategy_id=self.strategy.id,
+        #         status="PENDING",
+        #         cycle=cycle,
+        #         progress=current_state
+        #     )
+        #     print(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: PENDING)")
+        #     self.db.add(new_snapshot)
+        #     self.db.commit()
+        #     success = self._place_orders(new_snapshot)
+            
+        
+
+        
+        # if success:
+        #     print("✅ Routine Completed")
+        # else:
+        #     print(f"⏸️  Routine Pending (will retry on next execution)")
+
+    def _create_initial_snapshot(self) -> StrategySnapshot:
+        initial_state = {
+            "current_t": 0,
+            "star": self.sell_gain,
+            "investment": self.initial_investment,
+            "unit_investment": self.initial_investment / self.division if self.initial_investment else 0,
+            "avg_price": 0,
+            "quantity": 0,
+            "balance": self.initial_investment, 
+            "equity": self.initial_investment,
+            "daily_profit": 0,
+            "cycle": 0
+        }
+        cycle = 0
+        new_snapshot = StrategySnapshot(
+            strategy_id=self.strategy.id,
+            status=SnapshotStatus.COMPLETED,
+            cycle=cycle,
+            progress=initial_state
+        )
+        print(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: COMPLETED)")
+        self.db.add(new_snapshot)
+        self.db.commit()
+        return new_snapshot
+        
+
+    def _calculate_next_state(self, last_snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
         """Calculate new state based on last snapshot and its filled orders."""
         state = last_snapshot.progress.copy()
         orders = self.db.query(Order).filter(Order.snapshot_id == last_snapshot.id).all()
@@ -167,7 +234,7 @@ class InfBuyStrategy(BaseStrategy):
         new_qty = temp_qty + buy_sum["qty"]
         new_amount = temp_amount + buy_sum["value"]
         
-        if new_qty == 0:
+        if new_qty <= 0.0001:
             new_avg = 0
         else:
             new_avg = round(new_amount / new_qty, 2)
@@ -197,12 +264,7 @@ class InfBuyStrategy(BaseStrategy):
             (self.sell_gain - new_t * self.sell_gain / self.division * 2), 
             2
         )
-        raw_price = self.broker.get_price(self.ticker)
-        price_info = self.broker.parse_price_response(raw_price)
-        if price_info['price'] is None:
-            print(f"❌ Failed to get price for {self.ticker}. Response: {price_info}")
-            raise ValueError(f"Failed to get current price. Response: {price_info}")
-        current_price = price_info['price']
+
         # Update state
         state['current_t'] = new_t
         state['star'] = new_star
@@ -235,29 +297,18 @@ class InfBuyStrategy(BaseStrategy):
         
         return state
 
-    def _generate_orders(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _generate_orders(self, state: Dict[str, Any], current_price) -> List[Dict[str, Any]]:
         """Generate list of orders based on current state."""
         try:
             print(f"\n📊 _generate_orders called with state: {state}")
             
             # 1. Get Current Price
-            try:
-                raw_price = self.broker.get_price(self.ticker)
-                price_info = self.broker.parse_price_response(raw_price)
-                if price_info['price'] is None:
-                    print(f"❌ Failed to get price for {self.ticker}. Response: {price_info}")
-                    raise ValueError(f"Failed to get current price. Response: {price_info}")
-                current_price = price_info['price']
-                print(f"  ✓ Current Price: {current_price}")
-            except Exception as e:
-                print(f"❌ [Error] Failed to get current price: {e}")
-                raise
             
             # 2. Extract State Variables
             try:
                 avg_price = state.get('avg_price', None)
                 current_t = state.get('current_t', 0)
-                if avg_price is None and current_t>0:
+                if avg_price is None and current_t > 0:
                     print("❌ avg_price is None despite T>0")
                     raise ValueError("avg_price is None despite T>0")
                 star = state.get('star', 0)
@@ -268,17 +319,13 @@ class InfBuyStrategy(BaseStrategy):
                 print(f"  State vars - T: {current_t}, Qty: {quantity}, Avg: {avg_price}, Star: {star}")
                 
                 # Calculate Star Price
-                if avg_price > 0:
+                if avg_price > 0.001:
                     star_price = round(avg_price * (1 + star), 2)
                 else:
-                    star_price = round(current_price * 1.1, 2)
-                
-                if star_price > current_price * 1.19:
-                    star_buy_price = round(current_price * 1.19, 2)
-                    avg_buy_price = star_price
-                else:
-                    star_buy_price = star_price
-                    avg_buy_price = avg_price
+                    star_price = round(current_price * (1 + star), 2)
+                # Adjust Star Buy Price if too high to avoid broker rejections
+                star_buy_price = min(star_price, round(current_price * 1.19, 2))
+                avg_buy_price = min(avg_price, round(current_price * 1.19, 2))
                     
                 print(f"  Price calc - star_price: {star_price}, star_buy_price: {star_buy_price}, avg_buy_price: {avg_buy_price}")
                 
@@ -309,7 +356,7 @@ class InfBuyStrategy(BaseStrategy):
             try:
                 if current_t == 0:
                     print(f"  [Phase] Initial Buy (T=0)")
-                    # Initial Buy
+                    # Initial Buy Orders Starting from 20% above current price
                     target_price = round(current_price * 1.2, 2)
                     qty = int(unit_investment / target_price) if target_price > 0 else 0
                     print(f"    Initial order: qty={qty}, price={target_price}")

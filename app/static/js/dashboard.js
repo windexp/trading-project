@@ -123,12 +123,13 @@ async function submitCreateStrategy() {
                 is_advanced: document.getElementById("vr_advanced_option").value || "N",
                 initial_investment: parseFloat(document.getElementById("vr_initial_investment").value) || 10000,
                 periodic_investment: parseFloat(document.getElementById("vr_periodic_investment").value) || 400,
-                daily_limit_rate: parseFloat(document.getElementById("vr_limit").value) || 2,
+                buy_limit_rate: parseFloat(document.getElementById("vr_buy_limit").value) || 2,
+                sell_limit_rate: parseFloat(document.getElementById("vr_sell_limit").value) || 2,
                 g_factor: parseFloat(document.getElementById("vr_g").value) || 13,
                 u_band: parseFloat(document.getElementById("vr_u_band").value) || 15,
                 l_band: parseFloat(document.getElementById("vr_l_band").value) || 15
             };            
-        } else {
+        } else if (type === "InfBuy") {
             params = {
                 ticker: document.getElementById("inf_ticker").value || "SOXL",
                 initial_investment: parseFloat(document.getElementById("inf_investment").value) || 0,

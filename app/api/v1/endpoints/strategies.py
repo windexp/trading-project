@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.services.broker.koreainvestment import KoreaInvestmentBroker
+from app.services.broker.base import BaseBroker
 from app.models.account import Account
 from app.models.schema import Strategy, StrategySnapshot, Order
 from app.models.enums import StrategyStatus
@@ -39,6 +40,16 @@ class StrategyResponse(BaseModel):
         from_attributes = True
 
 # Deactivate (pause) a strategy
+def _get_broker(account) -> BaseBroker:
+    if account.broker == "KIS":
+        broker = KoreaInvestmentBroker(
+            account_no=account.account_no,
+            app_key=account.app_key,
+            app_secret=account.app_secret
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported broker")
+    return broker
 
 @router.post("/{strategy_name}/deactivate", response_model=StrategyResponse, status_code=http_status.HTTP_200_OK)
 def deactivate_strategy(strategy_name: str, db: Session = Depends(get_db)):
@@ -85,39 +96,18 @@ def create_strategy(strategy: StrategyCreate, db: Session = Depends(get_db)):
     db.add(new_strategy)
     db.commit()
     db.refresh(new_strategy)
-    
-    # Create Initial Snapshot
-    initial_state = {}
+    # Get account and initialize broker
+    account = db.query(Account).filter(Account.account_no == strategy.account_name).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    broker = _get_broker(account)    
+    # Create Initial Snapshot using strategy-specific methods
     if new_strategy.strategy_code == "InfBuy":
-        inv = float(new_strategy.base_params.get("investment_amount", 10000) or 10000)
-        div = int(new_strategy.base_params.get("division", 20) or 20)
-        unit_inv = inv / div if div else 0
-        initial_state = {
-            "current_t": 0,
-            "star": strategy.base_params.get("sell_gain", 20),
-            "investment": strategy.base_params.get("investment_amount", 10000),
-            "profit": 0,
-            "quantity": 0,
-            "balance": strategy.base_params.get("investment_amount", 10000),
-            "unit_investment": unit_inv,
-            "avg_price": 0,
-        }
+        strategy_instance = InfBuyStrategy(new_strategy, broker, db)
+        strategy_instance._create_initial_snapshot()
     elif new_strategy.strategy_code == "VR":
-        initial_state = {
-            "total_investment": 0,
-            "current_v": 0,
-            "current_quantity": 0,
-            "current_pool": 0
-        }
-    
-    initial_snapshot = StrategySnapshot(
-        strategy_id=new_strategy.id,
-        status="INIT",
-        cycle=0,
-        progress=initial_state
-    )
-    db.add(initial_snapshot)
-    db.commit()
+        strategy_instance = VRStrategy(new_strategy, broker, db)
+        strategy_instance._create_initial_snapshot()
     
     return new_strategy
 
@@ -157,12 +147,7 @@ def get_strategy_ticker_price(strategy_name: str, db: Session = Depends(get_db))
     account = db.query(Account).filter(Account.account_no == strategy.account_name).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    
-    broker = KoreaInvestmentBroker(
-        account_no=account.account_no,
-        app_key=account.app_key,
-        app_secret=account.app_secret
-    )
+    broker = _get_broker(account)
     try:
         price_data = broker.get_price(ticker)
         parsed = broker.parse_price_response(price_data)
@@ -350,16 +335,9 @@ def run_strategy_task(strategy_name: str, db: Session):
     # Get Account
     # In schema, account_name is stored. We assume it matches account_no for now.
     account = db.query(Account).filter(Account.account_no == strategy.account_name).first()
-        
     if not account:
-        print(f"❌ Account {strategy.account_name} not found")
-        return
-
-    broker = KoreaInvestmentBroker(
-        account_no=account.account_no,
-        app_key=account.app_key,
-        app_secret=account.app_secret
-    )
+        raise HTTPException(status_code=404, detail="Account not found")
+    broker = _get_broker(account)
 
     if strategy.strategy_code == "InfBuy":
         try:
