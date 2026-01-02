@@ -4,7 +4,7 @@
 
 // 대시보드 뷰로 전환
 function showDashboard() {
-    document.getElementById("strategy-details-view").classList.remove("active");
+    hideAllViews();
     document.getElementById("dashboard-view").classList.add("active");
     currentStrategy = null;
     

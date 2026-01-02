@@ -9,3 +9,10 @@ pyyaml>=6.0
 python-dotenv>=1.0.0
 cryptography>=41.0.0
 apscheduler>=3.10.0
+pytz>=2023.3
+
+# Discord Bot
+discord.py>=2.3.0
+
+# AI (Gemini)
+google-genai>=0.1.0

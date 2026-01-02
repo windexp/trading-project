@@ -12,6 +12,11 @@ from app.api.v1.router import api_router
 from app.core.database import engine, Base, SessionLocal
 from app.core.init_db import init_accounts
 from app.models.schema import Strategy, StrategySnapshot, Order
+from app.services.scheduler import strategy_scheduler
+from app.core.logging_config import setup_logging
+
+# 로깅 설정
+setup_logging()
 
 
 @asynccontextmanager
@@ -23,8 +28,14 @@ async def lifespan(app: FastAPI):
         init_accounts(db)
     finally:
         db.close()
+    
+    # 스케줄러 시작
+    strategy_scheduler.start()
+    
     yield
-    # 앱 종료 시 추가 정리 작업 필요시 여기에 작성
+    
+    # 앱 종료 시 스케줄러 정지
+    strategy_scheduler.stop()
 
 
 app = FastAPI(

@@ -2,6 +2,7 @@ import math
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import time
+import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -10,6 +11,8 @@ from app.models.schema import Strategy, StrategySnapshot, Order
 from app.models.enums import OrderStatus, OrderType, RequestOutcome
 from app.services.broker.base import BaseBroker
 import pytz
+
+logger = logging.getLogger(__name__)
 
 
 class BaseStrategy(ABC):
@@ -40,6 +43,11 @@ class BaseStrategy(ABC):
         """Calculate next state based on last snapshot."""
         pass
 
+    @abstractmethod
+    def generate_daily_summary(self) -> Dict[str, Any]:
+        """Generate daily summary for Discord notification."""
+        pass
+
     def _get_last_snapshot(self) -> Optional[StrategySnapshot]:
         """Get the last snapshot for this strategy."""
         return self.db.query(StrategySnapshot)\
@@ -53,7 +61,7 @@ class BaseStrategy(ABC):
         if not orders:
             return
 
-        print(f"Syncing {len(orders)} orders from snapshot...")
+        logger.info(f"Syncing {len(orders)} orders from snapshot...")
         
         kst = pytz.timezone('Asia/Seoul')
         # Get date range based on snapshot type
@@ -69,7 +77,7 @@ class BaseStrategy(ABC):
         start_date = min(snapshot_date, min_kst).strftime("%Y%m%d")
         end_date = max_kst.strftime("%Y%m%d")
         
-        print(f"[DEBUG] Transaction history lookup range: {start_date} ~ {end_date}")
+        logger.debug(f"Transaction history lookup range: {start_date} ~ {end_date}")
         raw_history = self.broker.get_transaction_history(self.ticker, start_date, end_date)
         history_list = self.broker.parse_history_response(raw_history)
         history_map = {h['order_id']: h for h in history_list}
@@ -81,99 +89,101 @@ class BaseStrategy(ABC):
                 order.filled_qty = info.get('filled_qty', 0)
                 order.filled_price = float(info.get('filled_amt', 0.0))/order.filled_qty if order.filled_qty else 0.0
             else:
-                print(f"  Order {order.order_id} Not Found in History")
+                logger.warning(f"Order {order.order_id} Not Found in History")
     
         # Check if all orders are finalized (no more SUBMITTED/PENDING)
-        self.db.commit()
+        self.db.commit()  # ← 추가!
+        logger.info(f"  💾 {len(orders)} orders synced and committed")
+            
         all_finalized = all(
             order.order_status != OrderStatus.SUBMITTED
             for order in orders
         )
         return all_finalized
-        # if all_finalized and snapshot.status == "IN_PROGRESS":
-        #     snapshot.status = "COMPLETED"
-        #     print(f"  ✅ All orders finalized. Snapshot marked as COMPLETED")
-        
-        # self.db.commit()
 
     def _place_orders(self, snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
-        """
-        Place orders for the given snapshot.
-        Returns a dict with results {"success": False, "submitted_orders": 0, "accepted_orders": 0, "is_holiday": False}
+        result = {
+        "success": False, 
+        "submitted_orders": 0, 
+        "accepted_orders": 0, 
+        "is_holiday": False, 
+        "error_msg": None
+        }
+            
+        error_list = []            
         
-        """
-        result = {"success": False, "submitted_orders": 0, "accepted_orders": 0, "is_holiday": False, "error_msg": None}
         try:
+            self.db.refresh(snapshot)
             # 1. Generate Orders
             orders = self._generate_orders(snapshot.progress, current_price)
             result['submitted_orders'] = len(orders)
+            
             if not orders:
-                print("  No orders to place")
-                snapshot.executed_at = None
-                self.db.commit()
+                logger.info("No orders to place")
                 result["success"] = True
+                result['error_msg'] = None
                 return result
             
             # 2. Place all orders
-            print(f"  Placing {len(orders)} orders...")
-            msg = []
-            
+            logger.info(f"Placing {len(orders)} orders...")
+                     
             for order_data in orders:
                 try:
-                    print(f"  [{order_data['side']}] {order_data['qty']} @ {order_data['price']}")
-                    if order_data['qty'] <= 0:
-                        print("    ⚠️  Skipping order with zero quantity")
+                    logger.info(f"[{order_data['side']}] {order_data['qty']} @ {order_data['price']}")
+                    if order_data.get('qty', 0) <= 0:
+                        logger.warning("Skipping order with zero quantity")
                         continue
-                    
                     res = self._place_single_order(order_data)
                     
-                    if res and res.get('outcome') == RequestOutcome.ACCEPTED:
-                        print(f"    ✅ Order Accepted: {res['order_id']}")
-                        snapshot.progress['msg'] = None
-                        result['accepted_orders'] += 1
-                        flag_modified(snapshot, 'progress')
-                        
-                    else:
-                        error_msg = res.get('error_msg', 'Unknown error') if res else 'No response'
-                        result['error_msg'] = error_msg
-                        error_code = res.get('error_code', '') if res else ''
-                        msg.append(f"{error_code} - {error_msg}")
-                        snapshot.progress['msg'] = msg
-                        flag_modified(snapshot, 'progress')
-                        if res.get('is_holiday', False):
-                            print(f"  📅 Market closed ({error_code}: {error_msg}). Keeping snapshot as PENDING.")
-                            snapshot.executed_at = None
-                            result['is_holiday'] = True
-                            break
-                        else:
-                            print(f"    ⚠️ Order Rejected: {error_code} - {error_msg}")
-                            continue
-
-                    # Order succeeded
-                    self._save_order(res, snapshot, order_data)
-                    print(f"    ✅ Order Placed: {res['order_id']}")
+                    if not res:
+                        error_list.append('No response from broker')
+                        logger.warning("  ⚠️ No response from broker")
+                        continue
                     
+                    # Check if market is closed first
+                    if res.get('is_holiday', False):
+                        msg = res.get('error_msg', 'Market closed')
+                        error_code = res.get('error_code', '')
+                        logger.info(f"📅 Market closed ({error_code}: {msg}). Keeping snapshot as PENDING.")
+                        result['is_holiday'] = True
+                        break
+                    
+                    # Handle accepted orders
+                    if res.get('outcome') == RequestOutcome.ACCEPTED:
+                        logger.info(f"  ✅ Order Accepted: {res['order_id']}")
+                        result['accepted_orders'] += 1
+                    else:
+                        # Handle rejected orders
+                        msg = res.get('error_msg', 'Unknown error')
+                        error_code = res.get('error_code', '')
+                        error_list.append(f"{error_code}: {msg}")
+                        logger.warning(f"  ⚠️ Order Rejected: Price {order_data['price']} ({error_code} - {msg})")
+                    
+                    # Save order (both accepted and rejected)
+                    self._save_order(res, snapshot, order_data)
+                    logger.info(f"  💾 Order Saved: {res.get('order_id', 'N/A')}")                    
                     
                 except Exception as e:
-                    print(f"    ❌ Exception: {e}")
+                    error_list.append(f"Order exception: {str(e)}")
+                    logger.info(f"  ❌ Exception: {e}")
                     
                 time.sleep(0.1)  # To avoid hitting rate limits
             if result['accepted_orders'] > 0:
                 result["success"] = True
-            self.db.commit()
-                        
+
+            if result['accepted_orders'] == result['submitted_orders']:
+                result['error_msg'] = None
+            else:
+                result['error_msg'] = error_list
             return result
             
         except Exception as e:
             print(f"❌ Error placing orders: {e}")
             import traceback
             traceback.print_exc()
-            snapshot.status = "FAILED"
-            snapshot.progress['error'] = str(e)
-            flag_modified(snapshot, 'progress')
-            snapshot.executed_at = None
-            self.db.commit()
-            return False
+            result['success'] = False
+            result['error_msg'] = str(e)
+            return result
 
     def _place_single_order(self, order_data: Dict) -> Optional[Dict]:
         """Place a single order via broker"""

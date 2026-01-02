@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,19 +8,28 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <!-- 기능별로 분리된 CSS 파일들 -->
     <link href="/static/css/style.css" rel="stylesheet">
     <link href="/static/css/dashboard.css" rel="stylesheet">
     <link href="/static/css/strategy.css" rel="stylesheet">
     <link href="/static/css/order.css" rel="stylesheet">
 </head>
+
 <body>
     <div class="main-container">
         <!-- Header -->
         <div class="page-header d-flex justify-content-between align-items-center">
             <h1><i class="bi bi-graph-up-arrow me-2"></i>Dollar Mining</h1>
-            <span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i> System Online</span>
+            <div class="d-flex gap-2 align-items-center">
+                <button class="btn btn-sm" onclick="showLogs()"
+                    style="height: 32px; background-color: #34495e; color: #ffffff; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    <i class="fas fa-file-alt"></i> Logs
+                </button>
+                <span class="badge bg-success"
+                    style="height: 32px; line-height: 32px; display: inline-flex; align-items: center;"><i
+                        class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i> System Online</span>
+            </div>
         </div>
 
         <!-- VIEW: Dashboard -->
@@ -87,33 +97,41 @@
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <span><i class="bi bi-gear me-2"></i>Configuration</span>
                             <div>
-                                <button class="btn btn-sm btn-outline-secondary" id="editConfigBtn" onclick="editStrategyConfig()">
+                                <button class="btn btn-sm btn-outline-secondary" id="editConfigBtn"
+                                    onclick="editStrategyConfig()">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-success" id="saveConfigBtn" onclick="saveStrategyConfig()" style="display:none;">
+                                <button class="btn btn-sm btn-success" id="saveConfigBtn" onclick="saveStrategyConfig()"
+                                    style="display:none;">
                                     <i class="bi bi-check-lg"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-secondary" id="cancelConfigBtn" onclick="cancelStrategyConfig()" style="display:none;">
+                                <button class="btn btn-sm btn-outline-secondary" id="cancelConfigBtn"
+                                    onclick="cancelStrategyConfig()" style="display:none;">
                                     <i class="bi bi-x-lg"></i>
                                 </button>
                             </div>
                         </div>
                         <div class="card-body">
                             <pre id="detailConfig">Loading...</pre>
-                            <textarea id="detailConfigEditor" class="form-control" rows="10" style="display:none; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
+                            <textarea id="detailConfigEditor" class="form-control" rows="10"
+                                style="display:none; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
                         </div>
                     </div>
-                    
+
                     <div class="card">
                         <div class="card-header"><i class="bi bi-lightning me-2"></i>Quick Actions</div>
                         <div class="card-body d-grid gap-2">
                             <button class="btn btn-success" onclick="runStrategy()">
                                 <i class="bi bi-play-fill me-2"></i>Run Daily Routine
                             </button>
+                            <button class="btn btn-info" onclick="sendDailySummary()">
+                                <i class="bi bi-send me-2"></i>Send Daily Summary
+                            </button>
                             <button id="deactivateStrategyBtn" class="btn btn-warning" onclick="deactivateStrategy()">
                                 <i class="bi bi-pause-circle me-2"></i>Deactivate Strategy
                             </button>
-                            <button id="activateStrategyBtn" class="btn btn-primary" onclick="activateStrategy()" style="display:none;">
+                            <button id="activateStrategyBtn" class="btn btn-primary" onclick="activateStrategy()"
+                                style="display:none;">
                                 <i class="bi bi-play-circle me-2"></i>Activate Strategy
                             </button>
                             <button class="btn btn-outline-danger" onclick="deleteStrategy()">
@@ -139,9 +157,10 @@
                             </div>
                         </div>
                         <div class="card-body p-0">
-                            <div class="table-responsive">
+                            <div id="snapshotTableContainer" class="table-responsive"
+                                style="max-height: 600px; overflow-y: auto;">
                                 <table class="table align-middle mb-0">
-                                    <thead>
+                                    <thead style="position: sticky; top: 0; background-color: white; z-index: 10;">
                                         <tr>
                                             <th>ID</th>
                                             <th>Date</th>
@@ -154,9 +173,98 @@
                                         <!-- Loaded via JS -->
                                     </tbody>
                                 </table>
+                                <div id="snapshotLoadingIndicator"
+                                    style="display: none; text-align: center; padding: 10px;">
+                                    <div class="spinner-border spinner-border-sm" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: Logs -->
+        <div id="logs-view" class="view-section">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <button class="btn btn-outline-secondary" onclick="showDashboard()">
+                        <i class="bi bi-arrow-left"></i>
+                    </button>
+                    <span class="ms-3">
+                        <h4 class="mb-1 fw-bold d-inline">System Logs</h4>
+                        <p class="text-muted mb-0 small d-inline ms-2">View application logs</p>
+                    </span>
+                </div>
+                <button class="btn btn-primary" onclick="loadLogs()">
+                    <i class="bi bi-arrow-clockwise me-2"></i>Refresh
+                </button>
+            </div>
+            <div class="row mb-3 align-items-stretch" style="min-height: 100px;">
+                <div class="col-md-8">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-file-earmark-text me-2"></i>Log Files</span>
+                            <span id="logFilesCount" class="badge bg-secondary">0 files</span>
+                        </div>
+                        <div class="card-body p-0 position-relative" style="min-height: 0;">
+                            <div class="list-group list-group-flush position-absolute top-0 start-0 end-0 bottom-0"
+                                id="logFilesList"
+                                style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;">
+                                <style>
+                                    /* Chrome, Safari, Opera에서 스크롤바 숨기기 */
+                                    #logFilesList::-webkit-scrollbar {
+                                        display: none;
+                                    }
+                                </style>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header"><i class="bi bi-sliders me-2"></i>Options</div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">Module Filter</label>
+                                <select class="form-select" id="logModuleFilter">
+                                    <option value="ALL">ALL MODULES</option>
+                                </select>
+                            </div>
+                            <div class="mb-0">
+                                <label class="form-label">Lines to show</label>
+                                <select class="form-select" id="logLinesSelect">
+                                    <option value="100" selected>Last 100 lines</option>
+                                    <option value="500">Last 500 lines</option>
+                                    <option value="1000">Last 1000 lines</option>
+                                </select>
+                            </div>
+                            <!-- <button class="btn btn-outline-primary w-100 mt-auto" onclick="downloadCurrentLog()">
+                                <i class="bi bi-download me-2"></i>Download Current Log
+                            </button> -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card d-flex flex-column" style="height: calc(100vh - 500px); min-height: 400px;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-terminal me-2"></i><span id="currentLogFileName">trading.log</span></span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleLogWrap()">
+                            <i class="bi bi-text-wrap" id="wrapIcon"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="copyLogContent()">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0 d-flex flex-column" style="flex: 1; overflow: hidden;">
+                    <pre id="logContent"
+                        style="background: #1e1e1e; color: #d4d4d4; padding: 1rem; margin: 0; flex: 1; overflow-y: auto; font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-size: 0.85rem; white-space: pre; scrollbar-width: none; -ms-overflow-style: none;">Loading logs...</pre>
                 </div>
             </div>
         </div>
@@ -176,14 +284,15 @@
                         <div class="row mb-3">
                             <div class="col-md-6">
                                 <label class="form-label">Strategy Name</label>
-                                <input type="text" class="form-control" id="newStrategyName" placeholder="Enter strategy name" required>
+                                <input type="text" class="form-control" id="newStrategyName"
+                                    placeholder="Enter strategy name" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Account</label>
                                 <select class="form-select" id="accountSelect" required></select>
                             </div>
                         </div>
-                        
+
                         <div class="mb-4">
                             <label class="form-label">Strategy Type</label>
                             <select class="form-select" id="newStrategyType" onchange="toggleCreateFields()">
@@ -239,7 +348,7 @@
                                         <option value="N" selected>N</option>
                                         <option value="Y">Y</option>
                                     </select>
-                                </div>                                
+                                </div>
 
                             </div>
                         </div>
@@ -262,11 +371,13 @@
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Sell Gain (%)</label>
-                                    <input type="number" class="form-control" id="inf_sell_gain" value="20" step="1" min="0" max="100">
+                                    <input type="number" class="form-control" id="inf_sell_gain" value="20" step="1"
+                                        min="0" max="100">
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Reinvestment Rate (%)</label>
-                                    <input type="number" class="form-control" id="inf_reinvestment_rate" value="50" step="1" min="0" max="100">
+                                    <input type="number" class="form-control" id="inf_reinvestment_rate" value="50"
+                                        step="1" min="0" max="100">
                                     <small class="text-muted">sell profit to reinvest</small>
                                 </div>
                             </div>
@@ -296,16 +407,20 @@
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h6 class="mb-0"><i class="bi bi-database me-2"></i>State Data</h6>
                             <div>
-                                <button class="btn btn-sm btn-outline-primary" id="editSnapshotBtn" onclick="enableSnapshotEdit()">
+                                <button class="btn btn-sm btn-outline-primary" id="editSnapshotBtn"
+                                    onclick="enableSnapshotEdit()">
                                     <i class="bi bi-pencil me-1"></i>Edit
                                 </button>
-                                <button class="btn btn-sm btn-success" id="saveSnapshotBtn" onclick="saveSnapshotEdit()" style="display:none;">
+                                <button class="btn btn-sm btn-success" id="saveSnapshotBtn" onclick="saveSnapshotEdit()"
+                                    style="display:none;">
                                     <i class="bi bi-check-lg me-1"></i>Save
                                 </button>
-                                <button class="btn btn-sm btn-outline-secondary" id="cancelSnapshotBtn" onclick="cancelSnapshotEdit()" style="display:none;">
+                                <button class="btn btn-sm btn-outline-secondary" id="cancelSnapshotBtn"
+                                    onclick="cancelSnapshotEdit()" style="display:none;">
                                     Cancel
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger ms-2" id="deleteSnapshotBtn" onclick="deleteSnapshot()">
+                                <button class="btn btn-sm btn-outline-danger ms-2" id="deleteSnapshotBtn"
+                                    onclick="deleteSnapshot()">
                                     <i class="bi bi-trash me-1"></i>Delete
                                 </button>
                             </div>
@@ -313,7 +428,8 @@
                         <div class="row mb-2">
                             <div class="col-md-4 d-flex align-items-end gap-2">
                                 <label class="form-label status-label mb-0">Status</label>
-                                <select class="form-select form-select-sm status-dropdown" id="snapshotDetailStatus" disabled style="width:auto; font-size:0.92em; min-width:110px; margin-left:6px;">
+                                <select class="form-select form-select-sm status-dropdown" id="snapshotDetailStatus"
+                                    disabled style="width:auto; font-size:0.92em; min-width:110px; margin-left:6px;">
                                     <option value="MANUAL">MANUAL</option>
                                     <option value="INIT">INIT</option>
                                     <option value="PENDING">PENDING</option>
@@ -324,7 +440,8 @@
                             </div>
                         </div>
                         <pre id="snapshotStateData">Loading...</pre>
-                        <textarea id="snapshotStateEditor" class="form-control" rows="10" style="display:none; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
+                        <textarea id="snapshotStateEditor" class="form-control" rows="10"
+                            style="display:none; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
                     </div>
                     <div>
                         <h6 class="mb-3"><i class="bi bi-list-ul me-2"></i>Orders</h6>
@@ -377,7 +494,8 @@
                     </div>
                     <div class="mt-3">
                         <label class="form-label">Progress JSON</label>
-                        <textarea id="snapshotProgress" class="form-control" rows="10" placeholder="{ }" style="font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
+                        <textarea id="snapshotProgress" class="form-control" rows="10" placeholder="{ }"
+                            style="font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;"></textarea>
                         <small class="text-muted">Leave empty for an empty object.</small>
                     </div>
                 </div>
@@ -396,6 +514,8 @@
     <script src="/static/js/dashboard.js"></script>
     <script src="/static/js/strategy.js"></script>
     <script src="/static/js/order.js"></script>
+    <script src="/static/js/logs.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
+
 </html>

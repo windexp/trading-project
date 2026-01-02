@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
@@ -87,7 +89,7 @@ class KoreaInvestmentBroker(BaseBroker):
                 order_status = OrderStatus.REJECTED
             else:
                 order_status = OrderStatus.UNFILLED
-                print(f"  Order {h.get('order_id')} UNFILLED (기타)")
+                logger.info(f"Order {h.get('order_id')} UNFILLED (기타)")
             normalized.append({
                 'order_id': h.get('odno'),
                 'status': order_status,
@@ -142,7 +144,7 @@ class KoreaInvestmentBroker(BaseBroker):
             
             # Add Token Endpoint (not in yaml usually)
             self.api_map["token"] = {"url": "/oauth2/tokenP", "tr_id": ""}
-            print(f"✅ Loaded API Config from {config_path}")
+            logger.debug(f"✅ Loaded API Config from {config_path}")
 
             # Load Tickers and Exchange Maps
             tickers_path = os.path.join(current_dir, "tickers.yaml")
@@ -155,7 +157,7 @@ class KoreaInvestmentBroker(BaseBroker):
                 self.exchange_maps = yaml.safe_load(f)
             
         except Exception as e:
-            print(f"⚠️ Failed to load config/data files: {e}")
+            logger.warning(f"⚠️ Failed to load config/data files: {e}")
             # Fallback to hardcoded map
             self.api_map = {
                 "token": {"url": "/oauth2/tokenP", "tr_id": ""},
@@ -192,10 +194,10 @@ class KoreaInvestmentBroker(BaseBroker):
                         if datetime.now() - issued_at < timedelta(hours=12):
                             self.access_token = cache["access_token"]
                             self.token_expiry = issued_at + timedelta(hours=12)
-                            # print(f"✅ Loaded KIS Access Token from Cache (Issued: {issued_at})")
+                            # logger.info(f"✅ Loaded KIS Access Token from Cache (Issued: {issued_at})")
                             return
             except Exception as e:
-                # print(f"⚠️ Failed to load token cache: {e}")
+                # logger.warning(f"⚠️ Failed to load token cache: {e}")
                 pass
 
         # 3. Request New Token
@@ -214,7 +216,7 @@ class KoreaInvestmentBroker(BaseBroker):
                 self.access_token = data["access_token"]
                 issued_at = datetime.now()
                 self.token_expiry = issued_at + timedelta(hours=12)
-                print(f"✅ KIS Access Token Generated (Issued: {issued_at})")
+                logger.info(f"✅ KIS Access Token Generated (Issued: {issued_at})")
                 
                 # Save to Cache
                 with open(cache_file, "w") as f:
@@ -230,10 +232,10 @@ class KoreaInvestmentBroker(BaseBroker):
                 except:
                     pass
             else:
-                print(f"❌ Failed to generate token: {data}")
+                logger.error(f"❌ Failed to generate token: {data}")
                 raise ValueError("Token generation failed")
         except Exception as e:
-            print(f"❌ Token request error: {e}")
+            logger.error(f"❌ Token request error: {e}")
             raise
 
     def _get_headers(self, tr_id: str) -> Dict[str, str]:
@@ -265,18 +267,18 @@ class KoreaInvestmentBroker(BaseBroker):
                 raise ValueError(f"Unsupported method: {method}")
             
             if response.status_code != 200:
-                print(f"⚠️ API Error ({response.status_code}): {response.text}")
+                logger.warning(f"⚠️ API Error ({response.status_code}): {response.text}")
                 return {}
                 
             res_json = response.json()
             if res_json.get('rt_cd') != '0':
-                print(f"⚠️ KIS Error: {res_json.get('msg1')}")
+                logger.warning(f"⚠️ KIS Error: {res_json.get('msg1')}")
                 return res_json
                 
             return res_json
             
         except Exception as e:
-            print(f"❌ Request failed: {e}")
+            logger.error(f"❌ Request failed: {e}")
             return {}
 
     def get_exchange_code(self, ticker: str) -> str:

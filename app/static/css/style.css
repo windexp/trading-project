@@ -47,6 +47,16 @@ body {
     line-height: 1.6;
 }
 
+/* Hide scrollbar for log files list */
+#logFilesList::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for log content */
+#logContent::-webkit-scrollbar {
+    display: none;
+}
+
 .main-container {
     max-width: 1400px;
     margin: 0 auto;
@@ -681,4 +691,39 @@ pre {
     min-width: 90px !important;
     max-width: 120px !important;
     border-radius: 6px !important;
+}
+
+/* ===================================
+   로그 뷰어 하이라이팅
+   =================================== */
+
+.log-error {
+    color: #ff6b6b;
+    font-weight: 600;
+    background-color: rgba(255, 107, 107, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.log-warning {
+    color: #ffd93d;
+    font-weight: 600;
+    background-color: rgba(255, 217, 61, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.log-info {
+    color: #4ecdc4;
+}
+
+.log-debug {
+    color: #95afc0;
+    opacity: 0.8;
+}
+
+.log-content {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
 }

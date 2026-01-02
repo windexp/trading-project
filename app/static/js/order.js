@@ -12,7 +12,13 @@ function renderSnapshotOrders(orders) {
     }
     
     tbody.innerHTML = "";
-    orders.forEach(o => {
+    const sortedOrders = [...orders].sort((a, b) => {
+        const ta = a?.ordered_at ? new Date(a.ordered_at).getTime() : 0;
+        const tb = b?.ordered_at ? new Date(b.ordered_at).getTime() : 0;
+        return tb - ta;
+    });
+
+    sortedOrders.forEach(o => {
         const tr = document.createElement("tr");
         
         // 시간 포맷

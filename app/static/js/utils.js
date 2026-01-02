@@ -4,6 +4,7 @@
 
 // API URL
 const API_URL = "/api/v1/strategies";
+const API_BASE = "/api/v1";
 
 // 날짜 포맷 함수
 function formatDate(dateString) {
@@ -64,4 +65,29 @@ function showSuccess(message) {
 // 확인 대화상자
 function confirmAction(message) {
     return confirm(message);
+}
+
+// 모든 뷰 숨기기
+function hideAllViews() {
+    document.querySelectorAll('.view-section').forEach(view => {
+        view.classList.remove('active');
+    });
+}
+
+// 알림 메시지 표시 (선택적 자동 닫기)
+function showAlert(message, type = 'info', duration = 0) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alertDiv);
+    
+    if (duration > 0) {
+        setTimeout(() => {
+            alertDiv.remove();
+        }, duration);
+    }
 }

@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
+import logging
 
 from app.core.database import get_db
-from app.services.broker.koreainvestment import KoreaInvestmentBroker
+from app.services.broker.utils import get_broker
 from app.services.broker.base import BaseBroker
 from app.models.account import Account
 from app.models.schema import Strategy, StrategySnapshot, Order
@@ -18,6 +19,7 @@ from app.services.strategies.vr_strategy import VRStrategy
 from app.services.strategies.inf_buy_strategy import InfBuyStrategy
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # --- Pydantic Models for Request/Response ---
@@ -40,17 +42,6 @@ class StrategyResponse(BaseModel):
         from_attributes = True
 
 # Deactivate (pause) a strategy
-def _get_broker(account) -> BaseBroker:
-    if account.broker == "KIS":
-        broker = KoreaInvestmentBroker(
-            account_no=account.account_no,
-            app_key=account.app_key,
-            app_secret=account.app_secret
-        )
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported broker")
-    return broker
-
 @router.post("/{strategy_name}/deactivate", response_model=StrategyResponse, status_code=http_status.HTTP_200_OK)
 def deactivate_strategy(strategy_name: str, db: Session = Depends(get_db)):
     strategy = db.query(Strategy).filter(Strategy.name == strategy_name).first()
@@ -100,7 +91,7 @@ def create_strategy(strategy: StrategyCreate, db: Session = Depends(get_db)):
     account = db.query(Account).filter(Account.account_no == strategy.account_name).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    broker = _get_broker(account)    
+    broker = get_broker(strategy.account_name, db)
     # Create Initial Snapshot using strategy-specific methods
     if new_strategy.strategy_code == "InfBuy":
         strategy_instance = InfBuyStrategy(new_strategy, broker, db)
@@ -147,7 +138,7 @@ def get_strategy_ticker_price(strategy_name: str, db: Session = Depends(get_db))
     account = db.query(Account).filter(Account.account_no == strategy.account_name).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    broker = _get_broker(account)
+    broker = get_broker(strategy.account_name, db)
     try:
         price_data = broker.get_price(ticker)
         parsed = broker.parse_price_response(price_data)
@@ -214,16 +205,36 @@ def get_strategy_logs(strategy_name: str, db: Session = Depends(get_db)):
     return logs
 
 @router.get("/{strategy_name}/snapshots")
-def list_strategy_snapshots(strategy_name: str, db: Session = Depends(get_db)):
+def list_strategy_snapshots(
+    strategy_name: str, 
+    limit: int = 30,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
     strategy = db.query(Strategy).filter(Strategy.name == strategy_name).first()
     if not strategy:
         raise HTTPException(status_code=404, detail="Strategy not found")
     
+    # Get total count
+    total_count = db.query(StrategySnapshot)\
+        .filter(StrategySnapshot.strategy_id == strategy.id)\
+        .count()
+    
+    # Get paginated snapshots
     snapshots = db.query(StrategySnapshot)\
         .filter(StrategySnapshot.strategy_id == strategy.id)\
         .order_by(desc(StrategySnapshot.created_at))\
+        .limit(limit)\
+        .offset(offset)\
         .all()
-    return snapshots
+    
+    return {
+        "snapshots": snapshots,
+        "total": total_count,
+        "limit": limit,
+        "offset": offset,
+        "has_more": (offset + len(snapshots)) < total_count
+    }
 
 @router.get("/{strategy_name}/snapshots/{snapshot_id}")
 def get_strategy_snapshot_details(strategy_name: str, snapshot_id: int, db: Session = Depends(get_db)):
@@ -239,7 +250,10 @@ def get_strategy_snapshot_details(strategy_name: str, snapshot_id: int, db: Sess
         raise HTTPException(status_code=404, detail="Snapshot not found")
         
     # Get Orders
-    orders = db.query(Order).filter(Order.snapshot_id == snapshot.id).all()
+    orders = db.query(Order)\
+        .filter(Order.snapshot_id == snapshot.id)\
+        .order_by(desc(Order.ordered_at))\
+        .all()
     
     return {
         "snapshot": snapshot,
@@ -337,7 +351,7 @@ def run_strategy_task(strategy_name: str, db: Session):
     account = db.query(Account).filter(Account.account_no == strategy.account_name).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    broker = _get_broker(account)
+    broker = get_broker(strategy.account_name, db)
 
     if strategy.strategy_code == "InfBuy":
         try:
@@ -370,6 +384,8 @@ def start_strategy(strategy_name: str, background_tasks: BackgroundTasks, db: Se
     background_tasks.add_task(run_strategy_task, strategy_name, db)
     
     return {"message": f"Strategy {strategy_name} execution started in background"}
+
+
 
 # --- Order Management ---
 
@@ -412,3 +428,125 @@ def delete_order(order_id: str, db: Session = Depends(get_db)):
     db.delete(order)
     db.commit()
     return {"message": "Order deleted", "order_id": order_id}
+
+@router.post("/execute-all-daily-routines", status_code=http_status.HTTP_200_OK)
+def execute_all_daily_routines_now(db: Session = Depends(get_db)):
+    """모든 활성 전략의 daily routine을 즉시 실행 (테스트용)"""
+    from app.services.scheduler import strategy_scheduler
+    
+    try:
+        strategy_scheduler.execute_now()
+        return {
+            "message": "All daily routines executed successfully",
+            "executed_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to execute daily routines: {str(e)}"
+        )
+
+@router.post("/{strategy_name}/execute-routine", status_code=http_status.HTTP_200_OK)
+def execute_strategy_routine_now(strategy_name: str, db: Session = Depends(get_db)):
+    """특정 전략의 daily routine을 즉시 실행 (테스트용)"""
+    strategy = db.query(Strategy).filter(Strategy.name == strategy_name).first()
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    
+    if strategy.status != StrategyStatus.ACTIVE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Strategy is not active (status: {strategy.status})"
+        )
+    
+    try:
+        # 브로커 초기화
+        broker = get_broker(strategy.account_name, db)
+        if not broker:
+            raise HTTPException(status_code=404, detail=f"Failed to initialize broker for account {strategy.account_name}")
+        
+        # 전략 타입에 따라 실행
+        if strategy.strategy_code == "InfBuy":
+            strategy_instance = InfBuyStrategy(strategy, broker, db)
+        elif strategy.strategy_code == "VR":
+            strategy_instance = VRStrategy(strategy, broker, db)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown strategy code: {strategy.strategy_code}"
+            )
+        
+        # Daily routine 실행
+        strategy_instance.execute_daily_routine()
+        
+        return {
+            "message": f"Strategy {strategy_name} daily routine executed successfully",
+            "strategy_name": strategy_name,
+            "strategy_code": strategy.strategy_code,
+            "executed_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to execute strategy routine: {str(e)}"
+        )
+        
+@router.post("/send-daily-summary", status_code=http_status.HTTP_200_OK)
+def send_daily_summary(
+    channel: str = "private",
+    db: Session = Depends(get_db)
+):
+    """
+    모든 활성 전략의 일일 요약을 Discord로 전송
+    
+    Args:
+        channel: Discord 채널 ("private" 또는 "public")
+    """
+    from app.services.scheduler import strategy_scheduler
+    
+    try:
+        # 스케줄러의 함수를 호출하여 모든 전략의 summary 전송
+        strategy_scheduler.send_all_daily_summaries(channel=channel)
+        
+        # 전송된 전략 정보 수집
+        active_strategies = db.query(Strategy).filter(
+            Strategy.status == StrategyStatus.ACTIVE
+        ).all()
+        
+        summaries = []
+        for strategy in active_strategies:
+            try:
+                broker = get_broker(strategy.account_name, db)
+                if not broker:
+                    continue
+                
+                if strategy.strategy_code == "InfBuy":
+                    strategy_instance = InfBuyStrategy(strategy, broker, db)
+                elif strategy.strategy_code == "VR":
+                    strategy_instance = VRStrategy(strategy, broker, db)
+                else:
+                    continue
+                
+                summary = strategy_instance.generate_daily_summary()
+                if summary.get("success"):
+                    summaries.append(summary)
+            except Exception as e:
+                logger.error(f"Error collecting summary for {strategy.name}: {e}")
+                continue
+        
+        return {
+            "message": f"Daily summaries sent to Discord ({channel})",
+            "channel": channel,
+            "strategies_processed": len(summaries),
+            "summaries": summaries,
+            "sent_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send daily summary: {str(e)}"
+        )

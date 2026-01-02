@@ -24,7 +24,7 @@ env/
 # Logs
 *.log
 logs/
-solx_history_debug.json
+soxl_history_debug.json
 # API Config & Sensitive files
 # api_config.yaml
 settings.yaml

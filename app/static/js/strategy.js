@@ -2,6 +2,53 @@
 // 전략 상세 / 스냅샷 관련 함수
 // ===================================
 
+let snapshotModalInstance = null;
+let lastFocusedElementBeforeSnapshotModal = null;
+
+// Snapshot pagination state
+let snapshotState = {
+    offset: 0,
+    limit: 30,
+    hasMore: true,
+    loading: false,
+    initialized: false
+};
+
+function getSnapshotModalInstance() {
+    const el = document.getElementById('snapshotModal');
+    if (!el) return null;
+
+    if (!snapshotModalInstance) {
+        snapshotModalInstance = bootstrap.Modal.getOrCreateInstance(el);
+    }
+
+    // Bind focus-management once to prevent aria-hidden/focus warnings.
+    if (!el.dataset.focusManagementBound) {
+        el.dataset.focusManagementBound = '1';
+
+        el.addEventListener('hide.bs.modal', () => {
+            const active = document.activeElement;
+            if (active && el.contains(active) && typeof active.blur === 'function') {
+                active.blur();
+            }
+        });
+
+        el.addEventListener('hidden.bs.modal', () => {
+            const toFocus = lastFocusedElementBeforeSnapshotModal;
+            lastFocusedElementBeforeSnapshotModal = null;
+            if (toFocus && typeof toFocus.focus === 'function' && document.contains(toFocus)) {
+                try {
+                    toFocus.focus({ preventScroll: true });
+                } catch {
+                    toFocus.focus();
+                }
+            }
+        });
+    }
+
+    return snapshotModalInstance;
+}
+
 // 전략 상세 뷰 표시
 function showStrategyDetailsView(strategy) {
     currentStrategy = strategy;
@@ -47,8 +94,13 @@ function showStrategyDetailsView(strategy) {
     // Reset Config Edit Mode
     cancelStrategyConfig();
 
-    // Load Snapshots
-    loadSnapshots();
+    // Load Snapshots (reset pagination)
+    loadSnapshots(true);
+    
+    // Initialize infinite scroll
+    setTimeout(() => {
+        initializeSnapshotScroll();
+    }, 100);
 }
 
 // 현재 가격 가져오기
@@ -160,75 +212,167 @@ async function saveStrategyConfig() {
         showError("Invalid JSON format: " + e.message);
     }
 }
-
-// 스냅샷 목록 로드
-async function loadSnapshots() {
-    if (!currentStrategy) return;
-    const res = await fetch(`${API_URL}/${currentStrategy.name}/snapshots`);
-    const snapshots = await res.json();
-    const tbody = document.getElementById("snapshotListBody");
-    tbody.innerHTML = "";
-
-    if (snapshots.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan='5' class='empty-state'>
-                    <i class="bi bi-camera"></i>
-                    <p class="mb-0">No snapshots yet</p>
-                    <small>Run the strategy to generate your first snapshot</small>
-                </td>
-            </tr>
-        `;
+// ===================================
+// Daily Summary 전송
+// ===================================
+async function sendDailySummary(channel = 'private') {
+    if (!currentStrategy) {
+        showError('No strategy selected');
         return;
     }
 
-    snapshots.forEach(snap => {
-        const tr = document.createElement("tr");
-        tr.className = "clickable-row";
-        tr.onclick = () => openSnapshotModal(snap.id);
+    if (!confirm(`Send daily summary to Discord (${channel} channel)?`)) {
+        return;
+    }
 
-        // Format Progress Summary
-        let summary = "";
-        if (currentStrategy.strategy_code === "InfBuy") {
-            const t = snap.progress.current_t ?? '';
-            const inv = snap.progress.investment || 0;
-            const equity = snap.progress.equity ?? 0;
-            const qty = snap.progress.quantity ?? 0;
-            const price = snap.progress.avg_price ?? 0;
-            summary = `<div style='font-size:0.92em;line-height:1.2;'>
-                <span class="text-muted">T:</span> ${t} <span class="text-muted ms-2">Inv:</span> $${inv.toFixed(0)} <span class="text-muted ms-2">Equity:</span> $${equity.toFixed(0)}<br/>
-                <span class="text-muted">Qty:</span> ${qty} <span class="text-muted ms-2">Price:</span> $${price.toFixed(2)}
-            </div>`;
+    try {
+        const res = await fetch(`${API_URL}/send-daily-summary?channel=${channel}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            showSuccess(`Daily summary sent successfully! (${data.strategies_processed} strategies processed)`);
         } else {
-            const v = snap.progress.current_v || 0;
-            const pool = snap.progress.current_pool || 0;
-            summary = `<span class="text-muted">V:</span> $${v.toFixed(0)} <span class="text-muted ms-2">Pool:</span> $${pool.toFixed(0)}`;
+            const err = await res.json();
+            showError('Failed to send daily summary: ' + (err.detail || 'Unknown error'));
         }
-
-        const statusClass = getStatusBadgeClass(snap.status);
-
-        let createdDateStr = '';
-        let executedDateStr = '';
+    } catch (e) {
+        console.error('Error sending daily summary:', e);
+        showError('Error sending daily summary: ' + e.message);
+    }
+}
+// 스냅샷 목록 로드
+async function loadSnapshots(reset = false) {
+    if (!currentStrategy) return;
+    
+    // Reset state if requested
+    if (reset) {
+        snapshotState = {
+            offset: 0,
+            limit: 30,
+            hasMore: true,
+            loading: false,
+            initialized: false
+        };
+        document.getElementById("snapshotListBody").innerHTML = "";
+    }
+    
+    // Prevent multiple simultaneous loads
+    if (snapshotState.loading) return;
+    if (!snapshotState.hasMore && snapshotState.initialized) return;
+    
+    snapshotState.loading = true;
+    const loadingIndicator = document.getElementById("snapshotLoadingIndicator");
+    if (loadingIndicator) loadingIndicator.style.display = "block";
+    
+    try {
+        const res = await fetch(`${API_URL}/${currentStrategy.name}/snapshots?limit=${snapshotState.limit}&offset=${snapshotState.offset}`);
+        const data = await res.json();
+        const tbody = document.getElementById("snapshotListBody");
         
-        if (snap.created_at) {
-            createdDateStr = formatDate(snap.created_at);
-        }
-        if (snap.executed_at) {
-            executedDateStr = formatDate(snap.executed_at);
+        // If this is the first load and there are no snapshots
+        if (snapshotState.offset === 0 && data.snapshots.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan='5' class='empty-state'>
+                        <i class="bi bi-camera"></i>
+                        <p class="mb-0">No snapshots yet</p>
+                        <small>Run the strategy to generate your first snapshot</small>
+                    </td>
+                </tr>
+            `;
+            snapshotState.hasMore = false;
+            snapshotState.initialized = true;
+            return;
         }
 
-        tr.innerHTML = `
-            <td><span class="badge bg-secondary">#${snap.id}</span></td>
-            <td>
-                <div><small>${createdDateStr|| ''}</small></div>
-                <div><small class="text-muted">${executedDateStr || ''}</small></div>
-            </td>
-            <td><span class="fw-medium">Cycle ${snap.cycle}</span></td>
-            <td><span class="badge ${statusClass}">${snap.status}</span></td>
-            <td>${summary}</td>
-        `;
-        tbody.appendChild(tr);
-    });
+        // Append new snapshots
+        data.snapshots.forEach(snap => {
+            const tr = document.createElement("tr");
+            tr.className = "clickable-row";
+            tr.onclick = () => openSnapshotModal(snap.id);
+
+            // Format Progress Summary
+            let summary = "";
+            if (currentStrategy.strategy_code === "InfBuy") {
+                const t = snap.progress.current_t ?? '';
+                const inv = snap.progress.investment || 0;
+                const equity = snap.progress.equity ?? 0;
+                const qty = snap.progress.quantity ?? 0;
+                const price = snap.progress.avg_price ?? 0;
+                summary = `<div style='font-size:0.92em;line-height:1.2;'>
+                    <span class="text-muted">T:</span> ${t} <span class="text-muted ms-2">Inv:</span> $${inv.toFixed(0)} <span class="text-muted ms-2">Equity:</span> $${equity.toFixed(0)}<br/>
+                    <span class="text-muted">Qty:</span> ${qty} <span class="text-muted ms-2">Price:</span> $${price.toFixed(2)}
+                </div>`;
+            } else {
+                const v = snap.progress.current_v || 0;
+                const pool = snap.progress.current_pool || 0;
+                summary = `<span class="text-muted">V:</span> $${v.toFixed(0)} <span class="text-muted ms-2">Pool:</span> $${pool.toFixed(0)}`;
+            }
+
+            const statusClass = getStatusBadgeClass(snap.status);
+
+            let createdDateStr = '';
+            let executedDateStr = '';
+            
+            if (snap.created_at) {
+                createdDateStr = formatDate(snap.created_at);
+            }
+            if (snap.executed_at) {
+                executedDateStr = formatDate(snap.executed_at);
+            }
+
+            tr.innerHTML = `
+                <td><span class="badge bg-secondary">#${snap.id}</span></td>
+                <td>
+                    <div><small>${createdDateStr|| ''}</small></div>
+                    <div><small class="text-muted">${executedDateStr || ''}</small></div>
+                </td>
+                <td><span class="fw-medium">Cycle ${snap.cycle}</span></td>
+                <td><span class="badge ${statusClass}">${snap.status}</span></td>
+                <td>${summary}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        // Update state
+        snapshotState.offset += data.snapshots.length;
+        snapshotState.hasMore = data.has_more;
+        snapshotState.initialized = true;
+        
+    } catch (e) {
+        console.error("Error loading snapshots:", e);
+    } finally {
+        snapshotState.loading = false;
+        if (loadingIndicator) loadingIndicator.style.display = "none";
+    }
+}
+
+// Initialize infinite scroll for snapshots
+function initializeSnapshotScroll() {
+    const container = document.getElementById("snapshotTableContainer");
+    if (!container) return;
+    
+    // Remove existing listener if any
+    if (container.scrollHandler) {
+        container.removeEventListener('scroll', container.scrollHandler);
+    }
+    
+    // Create new scroll handler
+    container.scrollHandler = function() {
+        const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
+        
+        // Load more when user scrolls near bottom (within 100px)
+        if (scrollHeight - scrollTop - clientHeight < 100) {
+            loadSnapshots();
+        }
+    };
+    
+    container.addEventListener('scroll', container.scrollHandler);
 }
 
 // 전략 실행
@@ -239,7 +383,7 @@ async function runStrategy() {
     const res = await fetch(`${API_URL}/start/${currentStrategy.name}`, { method: "POST" });
     const data = await res.json();
     showSuccess(data.message);
-    setTimeout(loadSnapshots, 2000);
+    setTimeout(() => loadSnapshots(true), 2000);
 }
 
 // 전략 삭제
@@ -254,8 +398,9 @@ async function deleteStrategy() {
 // 스냅샷 모달 열기
 async function openSnapshotModal(snapshotId) {
     currentSnapshotId = snapshotId;
-    const modal = new bootstrap.Modal(document.getElementById('snapshotModal'));
-    modal.show();
+    lastFocusedElementBeforeSnapshotModal = document.activeElement;
+    const modal = getSnapshotModalInstance();
+    if (modal) modal.show();
 
     cancelSnapshotEdit();
 
@@ -325,7 +470,7 @@ async function saveSnapshotEdit() {
             const updated = await res.json();
             document.getElementById("snapshotStateData").textContent = JSON.stringify(updated.progress, null, 2);
             cancelSnapshotEdit();
-            loadSnapshots();
+            loadSnapshots(true);
             showSuccess("Snapshot updated successfully!");
         } else {
             const err = await res.json();
@@ -345,11 +490,10 @@ async function deleteSnapshot() {
         method: "DELETE"
     });
     if (res.ok) {
-        const el = document.getElementById('snapshotModal');
-        const modal = bootstrap.Modal.getInstance(el);
+        const modal = getSnapshotModalInstance();
         if (modal) modal.hide();
         currentSnapshotId = null;
-        await loadSnapshots();
+        await loadSnapshots(true);
         showSuccess("Snapshot deleted successfully.");
     } else {
         const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
@@ -403,7 +547,7 @@ async function submitCreateSnapshot() {
             const el = document.getElementById('createSnapshotModal');
             const modal = createSnapshotModalInstance || bootstrap.Modal.getInstance(el);
             if (modal) modal.hide();
-            await loadSnapshots();
+            await loadSnapshots(true);
             showSuccess('Snapshot created successfully');
         } else {
             const err = await res.json();

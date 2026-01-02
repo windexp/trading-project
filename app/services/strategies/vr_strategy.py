@@ -1,4 +1,6 @@
 import math
+import logging
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta
 import time
 from typing import Dict, Any, List, Optional
@@ -32,90 +34,95 @@ class VRStrategy(BaseStrategy):
         self.u_band = float(self.params.get('u_band', 15))/100 # e.g., 15% -> 0.15
         self.l_band = float(self.params.get('l_band', 15))/100 # e.g., 15% -> 0.15
         self.is_advanced = self.params.get('is_advanced', False)
+    
     def execute_daily_routine(self):
-        print(f"🚀 Starting VR Routine for {self.strategy.name} ({self.ticker})")
+        logger.info(f"🚀 Starting VR Routine for {self.strategy.name} ({self.ticker})")
         #0. Get Current Price
         try:
             raw_price = self.broker.get_price(self.ticker)
             price_info = self.broker.parse_price_response(raw_price)
             if price_info['price'] is None:
-                print(f"❌ Failed to get price for {self.ticker}. Response: {price_info}")
+                logger.error(f"❌ Failed to get price for {self.ticker}. Response: {price_info}")
                 raise ValueError(f"Failed to get current price. Response: {price_info}")
             current_price = price_info['price']
-            print(f"  ✓ Current Price: {current_price}")
+            logger.info(f"  ✓ Current Price: {current_price}")
         except Exception as e:
-            print(f"❌ [Error] Failed to get current price: {e}")
+            logger.error(f"❌ [Error] Failed to get current price: {e}")
             raise
         # 1. Get Last Snapshot
         last_snapshot = self._get_last_snapshot()
         
         # 2. Handle no previous snapshot
         if not last_snapshot:
-            print("No previous snapshot found. Initializing new strategy.")
+            logger.info("No previous snapshot found. Initializing new strategy.")
             initial_snapshot = self._create_initial_snapshot()
             self.db.add(initial_snapshot)
             self.db.commit()            
+            self.db.refresh(initial_snapshot)
             last_snapshot = initial_snapshot
         
         else:
-            print(f"Found previous snapshot (Cycle {last_snapshot.cycle}, Created: {last_snapshot.created_at})")
+            logger.info(f"Found previous snapshot (Cycle {last_snapshot.cycle}, Created: {last_snapshot.created_at})")
 
         # now last_snapshot is guaranteed to be not None
         # Firstly check failed 
         if last_snapshot.status == SnapshotStatus.FAILED:
-            print("❌ Last snapshot failed. Manual intervention may be needed.")
+            logger.info("❌ Last snapshot failed. Manual intervention may be needed.")
             return
         # Sync last snapshot orders
         all_finalized = self._sync_snapshot_orders(last_snapshot)
+        self.db.refresh(last_snapshot)
         # check new snapshot creation condition
+
         kst = pytz.timezone('Asia/Seoul')
         now_kst = datetime.now(kst)
         snapshot_date = last_snapshot.created_at.replace(tzinfo=pytz.UTC).astimezone(kst)
         days_passed = (now_kst.date() - snapshot_date.date()).days
+
         if days_passed >= 14 and all_finalized:
-            print(f"  📅 Creating new snapshot (Days: {days_passed})")
-            # Mark last snapshot as completed
+            logger.info(f"✅ Days passed: {days_passed}. Creating new snapshot.")
             last_snapshot.status = SnapshotStatus.COMPLETED
-            self.db.commit()
+
             # Calculate next state
             new_state = self._calculate_next_state(last_snapshot, current_price)
             cycle = last_snapshot.cycle + 1
             new_snapshot = StrategySnapshot(
             strategy_id=self.strategy.id,
-            status="PENDING",
+            status=SnapshotStatus.PENDING,
             cycle=cycle,
             progress=new_state
             )
-            print(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: PENDING)")
+            logger.info(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: PENDING)")
             self.db.add(new_snapshot)
             self.db.commit()
+            self.db.refresh(new_snapshot)
+            last_snapshot = new_snapshot  # Update reference for Step 3
+            # Continue routine on the newly created snapshot
+            
 
         # Place orders for new or continued snapshot        
         if last_snapshot.status in [SnapshotStatus.PENDING, SnapshotStatus.IN_PROGRESS]:            
-            # `_place_orders` called `_generate_orders` inside and orderscommits DB
+            
             order_result = self._place_orders(last_snapshot, current_price)
-            if order_result.get('success', False):
-                print("✅ Additional orders placed")
+            success = order_result.get('success', False) 
+            if success:
+                logger.info("✅ New orders placed. Updating snapshot status to IN_PROGRESS.")
                 last_snapshot.status = SnapshotStatus.IN_PROGRESS
-                self.db.commit()
+                kst = pytz.timezone('Asia/Seoul')
+                last_snapshot.executed_at = datetime.now(tz=pytz.UTC).astimezone(kst)
+                logger.info(f"  📅 executed_at set to: {last_snapshot.executed_at}")
             else:            
-                success = order_result.get('success', False)
-                if success:
-                    last_snapshot.status = SnapshotStatus.IN_PROGRESS
-                    kst = pytz.timezone('Asia/Seoul')
-                    last_snapshot.executed_at = datetime.now(tz=pytz.UTC).astimezone(kst)
-                    print(f"  ✅ Orders placed successfully. executed_at set.")
-                else:
-                    last_snapshot.executed_at = None
-                    if order_result.get('is_holiday', False):
-                        print(f"  📅 Market closed. Keeping snapshot as PENDING.")
-                    else:                           
-                        last_snapshot.status = SnapshotStatus.FAILED
-                        last_snapshot.progress['error_msg'] = order_result.get('error_msg', 'Unknown error during order placement') 
-                        flag_modified(last_snapshot, 'progress')
-                        print(f"  ❌ No orders were placed successfully. executed_at cleared.")
-        print("✅ Routine Completed")
-
+                if order_result.get('is_holiday', False):
+                    logger.info(f"  📅 Market closed. Keeping snapshot as PENDING.")
+                else:                           
+                    last_snapshot.status = SnapshotStatus.FAILED
+                    logger.error(f"❌ No orders were placed successfully. executed_at cleared.")
+            last_snapshot.progress['error_msg'] = order_result.get('error_msg', 'Unknown error during order placement')            
+            flag_modified(last_snapshot, 'progress')
+            self.db.commit()
+            logger.info(f"  💾 Snapshot committed. executed_at: {last_snapshot.executed_at}")
+        logger.info("✅ VR Routine Completed.")
+   
 
     def _create_initial_snapshot(self) -> StrategySnapshot:
         initial_state = {
@@ -134,7 +141,7 @@ class VRStrategy(BaseStrategy):
             cycle=cycle,
             progress=initial_state
         )
-        print(f"📸 Created New Snapshot (ID: {initial_snapshot.id}, Status: PENDING)")
+        logger.info(f"📸 Created New Snapshot (ID: {initial_snapshot.id}, Status: PENDING)")
         self.db.add(initial_snapshot)
         self.db.commit()
         return initial_snapshot
@@ -195,12 +202,12 @@ class VRStrategy(BaseStrategy):
                 r_inc_advanced = (new_qty * current_price / last_state['v'] - 1) / (2 * math.sqrt(self.g_factor))
                 r_inc = r_inc + r_inc_advanced
         else:
-            print("❌ [Error] V is not defined in state.")
+            logger.info("❌ [Error] V is not defined in state.")
             raise ValueError("V is not defined in state.")
         new_v = last_state['v'] * r_inc + self.periodic_investment
         new_pool = temp_pool + self.periodic_investment
         equity = new_qty * current_price + new_pool
-        print(f"\n📊 _calculate_next_state called:")
+        logger.info(f"\n📊 _calculate_next_state called:")
         new_state = {}
         new_state['total_investment'] = last_state.get('total_investment', 0) + self.periodic_investment
         new_state['v'] = new_v  
@@ -210,15 +217,15 @@ class VRStrategy(BaseStrategy):
         new_state['equity'] = equity
         new_state['cycle_profit'] = cycle_profit
         
-        print(f"  Calculated New State:")
+        logger.info(f"  Calculated New State:")
         for key, value in new_state.items():    
-            print(f"    {key}: {value}")
+            logger.info(f"    {key}: {value}")
         return new_state
 
     def _generate_orders(self, state: Dict[str, Any], current_price) -> List[Dict[str, Any]]:
         """Generate list of orders based on current state."""
         try:
-            print(f"\n📊 _generate_orders called with state: {state}")
+            logger.info(f"\n📊 _generate_orders called with state: {state}")
             
             # 1. Get Current Price
             # current_price = float(self.broker.get_price(self.ticker))
@@ -286,12 +293,141 @@ class VRStrategy(BaseStrategy):
                 sell_orders = merged_sell_orders
             orders = buy_orders + sell_orders
             if not buy_orders and not sell_orders:
-                print("  ⚠️  No orders generated based on current state and limits.")
-            print(f"  ✓ Generated {len(buy_orders)} buy orders and {len(sell_orders)} sell orders")
+                logger.info("  ⚠️  No orders generated based on current state and limits.")
+            logger.info(f"  ✓ Generated {len(buy_orders)} buy orders and {len(sell_orders)} sell orders")
             return orders
             
         except Exception as e:
-            print(f"❌ [CRITICAL] _generate_orders failed: {e}")
+            logger.error(f"❌ [CRITICAL] _generate_orders failed: {e}")
             import traceback
             traceback.print_exc()
             raise
+    def generate_daily_summary(self) -> Dict[str, Any]:
+        """
+        VR 전략의 일일 요약 생성
+        - 최신 스냅샷 로드
+        - 스냅샷 주문 동기화
+        - 전날 주문과 현재 스냅샷 주문 Summary
+        """
+        try:
+            # 최신 스냅샷 로드
+            last_snapshot = self._get_last_snapshot()
+            if not last_snapshot:
+                return {
+                    "success": False,
+                    "error": "No snapshot found"
+                }
+            
+            # 스냅샷 주문 동기화
+            self._sync_snapshot_orders(last_snapshot)
+            
+            # 현재 스냅샷의 모든 주문 조회 (Snapshot Orders)
+            snapshot_orders = self.db.query(Order).filter(Order.snapshot_id == last_snapshot.id).all()
+            
+            # 어제 생성된 주문만 필터링 (Last Orders)
+            kst = pytz.timezone('Asia/Seoul')
+            now_kst = datetime.now(kst)
+            yesterday_start = (now_kst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday_end = yesterday_start + timedelta(days=1)
+            
+            last_orders = [
+                order for order in snapshot_orders 
+                if order.ordered_at and yesterday_start <= order.ordered_at.replace(tzinfo=kst) < yesterday_end
+            ]
+            
+            # Last Orders 집계 - Submitted & Filled
+            last_buy_submitted = 0
+            last_sell_submitted = 0
+            last_buy_qty = 0
+            last_buy_value = 0.0
+            last_sell_qty = 0
+            last_sell_value = 0.0
+            
+            for order in last_orders:
+                if order.order_type == OrderType.BUY:
+                    last_buy_submitted += 1
+                    if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+                        last_buy_qty += order.filled_qty
+                        last_buy_value += float(order.filled_price * order.filled_qty)
+                else:
+                    last_sell_submitted += 1
+                    if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+                        last_sell_qty += order.filled_qty
+                        last_sell_value += float(order.filled_price * order.filled_qty)
+            
+            # Snapshot Orders 집계 (현재 스냅샷의 모든 주문)
+            snapshot_buy_qty = 0
+            snapshot_buy_value = 0.0
+            snapshot_sell_qty = 0
+            snapshot_sell_value = 0.0
+            
+            for order in snapshot_orders:
+                if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+                    if order.order_type == OrderType.BUY:
+                        snapshot_buy_qty += order.filled_qty
+                        snapshot_buy_value += float(order.filled_price * order.filled_qty)
+                    else:
+                        snapshot_sell_qty += order.filled_qty
+                        snapshot_sell_value += float(order.filled_price * order.filled_qty)
+            
+            # 평균 가격 계산
+            last_buy_avg = last_buy_value / last_buy_qty if last_buy_qty > 0 else 0
+            last_sell_avg = last_sell_value / last_sell_qty if last_sell_qty > 0 else 0
+            snapshot_buy_avg = snapshot_buy_value / snapshot_buy_qty if snapshot_buy_qty > 0 else 0
+            snapshot_sell_avg = snapshot_sell_value / snapshot_sell_qty if snapshot_sell_qty > 0 else 0
+            
+            # 현재 상태
+            state = last_snapshot.progress
+            
+            return {
+                "success": True,
+                "strategy_name": self.strategy.name,
+                "strategy_code": self.strategy.strategy_code,
+                "ticker": self.ticker,
+                "cycle": last_snapshot.cycle,
+                "current_state": {
+                    "qty": state.get('qty', 0),
+                    "avg_price": state.get('avg_price', 0),
+                    "pool": state.get('pool', 0),
+                    "equity": state.get('equity', 0),
+                    "v": state.get('v', 0),
+                    "cycle_profit": state.get('cycle_profit', 0),
+                },
+                "last_orders": {
+                    "snapshot_id": last_snapshot.id,
+                    "total": len(last_orders),
+                    "buy": {
+                        "submitted": last_buy_submitted,
+                        "filled_qty": last_buy_qty,
+                        "filled_value": round(last_buy_value, 2),
+                        "avg_price": round(last_buy_avg, 2),
+                    },
+                    "sell": {
+                        "submitted": last_sell_submitted,
+                        "filled_qty": last_sell_qty,
+                        "filled_value": round(last_sell_value, 2),
+                        "avg_price": round(last_sell_avg, 2),
+                    }
+                },
+                "snapshot_orders": {
+                    "snapshot_id": last_snapshot.id,
+                    "total": len(snapshot_orders),
+                    "buy": {
+                        "filled_qty": snapshot_buy_qty,
+                        "filled_value": round(snapshot_buy_value, 2),
+                        "avg_price": round(snapshot_buy_avg, 2),
+                    },
+                    "sell": {
+                        "filled_qty": snapshot_sell_qty,
+                        "filled_value": round(snapshot_sell_value, 2),
+                        "avg_price": round(snapshot_sell_avg, 2),
+                    }
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating daily summary: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
