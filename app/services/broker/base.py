@@ -51,4 +51,3 @@ class BaseBroker(ABC):
     def cancel_order_response(self, order_id: str) -> Dict[str, Any]:
         """Cancel an existing order."""
         pass
-# 1. 전략 메타데이터 테이블

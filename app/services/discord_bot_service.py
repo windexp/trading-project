@@ -37,7 +37,9 @@ SYSTEM_INSTRUCTION = "You are a helpful AI assistant specialized in stock tradin
 class ConversationManager:
     """AI 대화 관리"""
     
-    def __init__(self, max_messages=20):str]] = defaultdict(list)
+    def __init__(self, max_messages=20):
+        self.max_messages = max_messages
+        self.conversations: Dict[int, List[str]] = defaultdict(list)
         self.user_settings = defaultdict(lambda: {"model": "gemini-2.0-flash-exp"})
 
     def add_message(self, user_id: int, message: str):
@@ -73,14 +75,14 @@ class TradingBot(discord.Client):
         self.bot_token = bot_token
         self.tree = app_commands.CommandTree(self)
         self.default_account = default_account
-        self# API 키를 환경 변수에 설정 (genai.Client()가 자동으로 읽음)
-            os.environ['GEMINI_API_KEY'] = gemini_key
-            self.gemini_client = genai.Client(nnel_ids or []
+        self.allowed_channel_ids = allowed_channel_ids or []
         
         # Gemini 설정 (옵션)
         self.ai_enabled = bool(gemini_key)
         if self.ai_enabled:
-            genai.configure(api_key=gemini_key)
+            # API 키를 환경 변수에 설정
+            os.environ['GEMINI_API_KEY'] = gemini_key
+            self.gemini_client = genai.Client()
             self.conversation_manager = ConversationManager()
         
         logger.info(f"Trading Bot initialized (AI: {'enabled' if self.ai_enabled else 'disabled'})")
@@ -376,7 +378,9 @@ class TradingBot(discord.Client):
         """Gemini API 호출"""
         if not self.ai_enabled:
             return "AI is not enabled for this bot."
-        # 대화 히스토리 가져오기
+        
+        try:
+            # 대화 히스토리 가져오기
             conversation_history = self.conversation_manager.get_conversation_history(user_id)
             
             # 현재 메시지를 히스토리에 추가
@@ -403,8 +407,6 @@ class TradingBot(discord.Client):
             
             return f"[{model_name}] {response_text}"
             
-            self.conversation_manager.add_message(user_id, response.text, "model")
-            return response_text
         except Exception as e:
             logger.error(f"Error calling Gemini API: {e}")
             return f"❌ AI API error: {str(e)}"

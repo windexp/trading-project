@@ -55,14 +55,19 @@ class KoreaInvestmentBroker(BaseBroker):
 
     def parse_price_response(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         price = None
-        if raw and 'output' in raw and 'price' in raw['output']:
+        high = None
+        low = None
+        base = None
+        open_price = None
+        
+        if raw and 'output' in raw:
             try:
-                output= raw['output']   
-                price = float(output['last'])
-                base=float(output['base'])
-                high = float(output.get('high', price))
-                low = float(output.get('low', price))
-                open_price = float(output.get('open', price))
+                output = raw['output']
+                price = float(output.get('last', 0)) if output.get('last') else None
+                base = float(output.get('base', 0)) if output.get('base') else None
+                high = float(output.get('high', 0)) if output.get('high') else None
+                low = float(output.get('low', 0)) if output.get('low') else None
+                open_price = float(output.get('open', 0)) if output.get('open') else None
             except Exception:
                 price = None
         return {'price': price, 'high': high, 'low': low, 'base': base, 'open': open_price, 'raw': raw}
@@ -102,10 +107,48 @@ class KoreaInvestmentBroker(BaseBroker):
         return normalized
     def parse_balance_response(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """Parse raw balance response from broker into standardized format."""
-        pass
+        result = {
+            'total_assets': 0,
+            'cash': 0,
+            'securities': 0,
+            'holdings': [],
+            'raw': raw
+        }
+        
+        if not raw:
+            return result
+        
+        try:
+            # output1: 계좌 요약 정보
+            output1 = raw.get('output1', {})
+            if output1:
+                result['total_assets'] = float(output1.get('tot_asst_amt', 0))
+                result['cash'] = float(output1.get('frcr_drwg_psbl_amt_1', 0))
+                result['securities'] = float(output1.get('scts_evlu_amt', 0))
+            
+            # output2: 보유 종목 리스트
+            output2 = raw.get('output2', [])
+            for holding in output2:
+                if holding.get('ovrs_pdno'):  # 종목코드가 있는 경우만
+                    result['holdings'].append({
+                        'ticker': holding.get('ovrs_pdno', ''),
+                        'quantity': int(holding.get('ccld_qty_smtl', 0)),
+                        'avg_price': float(holding.get('pchs_avg_pric', 0)),
+                        'current_price': float(holding.get('ovrs_now_pric', 0)),
+                        'current_value': float(holding.get('frcr_evlu_amt', 0)),
+                        'pnl': float(holding.get('frcr_evlu_pfls_amt', 0)),
+                        'pnl_pct': float(holding.get('evlu_pfls_rt1', 0)),
+                    })
+        except Exception as e:
+            logger.warning(f"Error parsing balance response: {e}")
+        
+        return result
+    
     def cancel_order_response(self, order_id: str) -> Dict[str, Any]:
         """Cancel an existing order."""
-        pass
+        # TODO: 주문 취소 API 구현
+        logger.warning("cancel_order_response not yet implemented")
+        return {'success': False, 'message': 'Not implemented'}
 
     def __init__(self, account_no: str, 
                  app_key: str, 

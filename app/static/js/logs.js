@@ -267,18 +267,7 @@ function escapeHtml(text) {
 /**
  * 로그 줄바꿈 토글
  */
-function toggleLogWrap() {
-    const logContent = document.getElementById('logContent');
-    logWrapEnabled = !logWrapEnabled;
-    
-    if (logWrapEnabled) {
-        logContent.style.whiteSpace = 'pre-wrap';
-        logContent.style.wordWrap = 'break-word';
-    } else {
-        logContent.style.whiteSpace = 'pre';
-        logContent.style.wordWrap = 'normal';
-    }
-}
+
 
 /**
  * 로그 내용 복사
