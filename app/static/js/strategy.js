@@ -395,6 +395,58 @@ async function deleteStrategy() {
     showDashboard();
 }
 
+// 전략 비활성화
+async function deactivateStrategy() {
+    if (!currentStrategy) return;
+    if (!confirmAction(`Deactivate ${currentStrategy.name}? The strategy will be paused.`)) return;
+
+    try {
+        const res = await fetch(`${API_URL}/${currentStrategy.name}/deactivate`, { method: "POST" });
+        if (res.ok) {
+            const updated = await res.json();
+            currentStrategy = updated;
+            
+            // Update UI
+            document.getElementById("detailStrategyStatus").textContent = updated.status;
+            document.getElementById("deactivateStrategyBtn").style.display = "none";
+            document.getElementById("activateStrategyBtn").style.display = "block";
+            
+            showSuccess("Strategy deactivated successfully!");
+        } else {
+            const err = await res.json();
+            showError("Error deactivating strategy: " + err.detail);
+        }
+    } catch (e) {
+        showError("Error deactivating strategy: " + e.message);
+    }
+}
+
+// 전략 활성화
+async function activateStrategy() {
+    if (!currentStrategy) return;
+    if (!confirmAction(`Activate ${currentStrategy.name}? The strategy will resume.`)) return;
+
+    try {
+        const res = await fetch(`${API_URL}/${currentStrategy.name}/activate`, { method: "POST" });
+        if (res.ok) {
+            const updated = await res.json();
+            currentStrategy = updated;
+            
+            // Update UI
+            document.getElementById("detailStrategyStatus").textContent = updated.status;
+            document.getElementById("activateStrategyBtn").style.display = "none";
+            document.getElementById("deactivateStrategyBtn").style.display = "block";
+            
+            showSuccess("Strategy activated successfully!");
+        } else {
+            const err = await res.json();
+            showError("Error activating strategy: " + err.detail);
+        }
+    } catch (e) {
+        showError("Error activating strategy: " + e.message);
+    }
+}
+
 // 스냅샷 모달 열기
 async function openSnapshotModal(snapshotId) {
     currentSnapshotId = snapshotId;
