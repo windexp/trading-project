@@ -1,17 +1,27 @@
-version: '3.8'
+##########################
+# GLOBAL NETWORK
+##########################
+networks:
+  proxy_net:
+    external: true
 
 services:
-  app:
-    build: .
-    container_name: trading-bot
+  gold-miner:
+    build: ./
+    container_name: gold-miner
     restart: always
-    ports:
-      - "8000:8000"
+    # ports:
+    #   - "8121:8000"
     env_file:
-      - .env
+      - ./.env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app", "--reload-include", "*.env", "--proxy-headers", "--forwarded-allow-ips", "*"]
     volumes:
-      - .:/app # Mount source code for hot reload
-      - ./trading.db:/app/trading.db # Persist SQLite DB
+      - ./app:/app/app          # Source code only (for hot-reload)
+      - ./.env:/app/.env        # Environment file (for hot-reload)
+      - ./trading.db:/app/trading.db
       - ./logs:/app/logs
+      - ./token_cache.json:/app/token_cache.json
     environment:
       - TZ=Asia/Seoul
+    networks:
+      - proxy_net

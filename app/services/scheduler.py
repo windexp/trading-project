@@ -33,7 +33,7 @@ class StrategyScheduler:
         # 매일 오후 6시 30분 실행 (Daily Routine)
         self.scheduler.add_job(
             func=self.execute_all_daily_routines,
-            trigger=CronTrigger(hour=18, minute=30),
+            trigger=CronTrigger(hour=18, minute=30, day_of_week='mon-fri'),
             id='daily_strategy_routine',
             name='Execute all strategies daily routine',
             replace_existing=True
@@ -42,7 +42,7 @@ class StrategyScheduler:
         # 매일 오전 7시에 실행 (Daily Summary)
         self.scheduler.add_job(
             func=self.send_all_daily_summaries,
-            trigger=CronTrigger(hour=7, minute=0),
+            trigger=CronTrigger(hour=7, minute=0, day_of_week='tue-sat'),
             id='daily_summary_notification',
             name='Send daily summaries to Discord',
             replace_existing=True

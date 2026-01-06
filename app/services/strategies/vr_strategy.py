@@ -20,7 +20,7 @@ class VRStrategy(BaseStrategy):
     Value Rebalancing (VR) Strategy Implementation (V2).
     Uses new Strategy/Snapshot/Order schema.
     """
-    
+        
     def __init__(self, strategy: Strategy, broker: BaseBroker, db: Session):
         super().__init__(strategy, broker, db)
         
@@ -34,7 +34,7 @@ class VRStrategy(BaseStrategy):
         self.u_band = float(self.params.get('u_band', 15))/100 # e.g., 15% -> 0.15
         self.l_band = float(self.params.get('l_band', 15))/100 # e.g., 15% -> 0.15
         self.is_advanced = self.params.get('is_advanced', False)
-    
+        
     def execute_daily_routine(self):
         logger.info(f"🚀 Starting VR Routine for {self.strategy.name} ({self.ticker})")
         #0. Get Current Price
@@ -45,6 +45,7 @@ class VRStrategy(BaseStrategy):
                 logger.error(f"❌ Failed to get price for {self.ticker}. Response: {price_info}")
                 raise ValueError(f"Failed to get current price. Response: {price_info}")
             current_price = price_info['price']
+              # Cache the current price
             logger.info(f"  ✓ Current Price: {current_price}")
         except Exception as e:
             logger.error(f"❌ [Error] Failed to get current price: {e}")
@@ -55,7 +56,7 @@ class VRStrategy(BaseStrategy):
         # 2. Handle no previous snapshot
         if not last_snapshot:
             logger.info("No previous snapshot found. Initializing new strategy.")
-            initial_snapshot = self._create_initial_snapshot()
+            initial_snapshot = self._create_initial_snapshot(current_price)
             self.db.add(initial_snapshot)
             self.db.commit()            
             self.db.refresh(initial_snapshot)
@@ -67,7 +68,7 @@ class VRStrategy(BaseStrategy):
         # now last_snapshot is guaranteed to be not None
         # Firstly check failed 
         if last_snapshot.status == SnapshotStatus.FAILED:
-            logger.info("❌ Last snapshot failed. Manual intervention may be needed.")
+            logger.error("❌ Last snapshot failed. Manual intervention may be needed.")
             return
         # Sync last snapshot orders
         all_finalized = self._sync_snapshot_orders(last_snapshot)
@@ -124,7 +125,7 @@ class VRStrategy(BaseStrategy):
         logger.info("✅ VR Routine Completed.")
    
 
-    def _create_initial_snapshot(self) -> StrategySnapshot:
+    def _create_initial_snapshot(self, current_price) -> StrategySnapshot:
         initial_state = {
             "total_investment": self.initial_investment,
             "v": self.initial_investment,
@@ -132,7 +133,8 @@ class VRStrategy(BaseStrategy):
             "pool": self.initial_investment,
             "avg_price": 0,
             "equity": self.initial_investment,
-            "cycle_profit": 0
+            "cycle_profit": 0,
+            "cycle_price": current_price
         }
         cycle = 1
         initial_snapshot = StrategySnapshot(
@@ -202,7 +204,7 @@ class VRStrategy(BaseStrategy):
                 r_inc_advanced = (new_qty * current_price / last_state['v'] - 1) / (2 * math.sqrt(self.g_factor))
                 r_inc = r_inc + r_inc_advanced
         else:
-            logger.info("❌ [Error] V is not defined in state.")
+            logger.error("❌ [Error] V is not defined in state.")
             raise ValueError("V is not defined in state.")
         new_v = last_state['v'] * r_inc + self.periodic_investment
         new_pool = temp_pool + self.periodic_investment
@@ -216,6 +218,7 @@ class VRStrategy(BaseStrategy):
         new_state['avg_price'] = new_avg
         new_state['equity'] = equity
         new_state['cycle_profit'] = cycle_profit
+        new_state['cycle_price'] = current_price
         
         logger.info(f"  Calculated New State:")
         for key, value in new_state.items():    
@@ -244,36 +247,81 @@ class VRStrategy(BaseStrategy):
             v = state.get('v', 0)
             u_band_value = (1+self.u_band) * v
             l_band_value = (1-self.l_band) * v
-            buy_limit = self.buy_limit_rate * cycle_pool # max trade per day as rate of pool value
-            sell_limit = self.sell_limit_rate * current_qty # max trade per day as rate of quantity                       
+            buy_limit_value = self.buy_limit_rate * cycle_pool # max trade per day as rate of pool value
+            sell_limit_qty = max(1, int(self.sell_limit_rate * current_qty)) # max trade per day as rate of quantity                       
  
+            max_daily_orders = 5 # It can be different and changed at execution
             # 3. Calculate orders
             # 3.1 Buy orders
-            # The first buy order
-            max_daily_orders = 5 # To prevent too many orders in one day (buy/sell separately)
-            buy_qty=1
-            
-            temp_target_price = float( round(l_band_value/(current_qty+buy_qty ), 2) ) if current_qty+buy_qty >0 else 0
-            target_price = min(current_price*1.2,temp_target_price)
-            daily_buy_sum = target_price
-            buy_orders = []
-            # Buy orders until limit reached
-            while daily_buy_sum <= buy_limit:
-                buy_orders.append( {"side": "BUY", "price": target_price, "qty": 1, "order_type": "LOC"} )
-                buy_qty += 1
-                temp_target_price = float( round(l_band_value/(current_qty+buy_qty ), 2) )
-                target_price = min(current_price*1.2,temp_target_price)
-                daily_buy_sum += target_price
+            if current_price*0.8 < l_band_value:
+                current_l_gap = l_band_value- current_price * current_qty
+                expected_total_buy_qty = int(current_l_gap / current_price) if current_price > 0 else 0
+                unit_buy_qty = max(1, int(expected_total_buy_qty / max_daily_orders))
+                logger.debug(f"  Current Lower Gap: {current_l_gap},\n  Expected Total Buy Qty: {expected_total_buy_qty} based on\n    current qty {current_qty}\n    current price {current_price}")
+                logger.debug(f"  Calculated Unit Buy Qty: {unit_buy_qty} for Max Daily Orders: {max_daily_orders} - expected total buy qty / max daily orders")
+                buy_orders = []
+                buy_qty=0
                 
-            # 3.2 Sell orders
-            sell_qty=1
-            target_price = float( round(u_band_value/(current_qty - sell_qty ), 2) ) if current_qty - sell_qty >0 else 0
-            daily_sell_sum = 0
-            sell_orders = []
-            # Sell orders until limit reached
-            while sell_qty <= sell_limit:
-                sell_orders.append( {"side": "SELL", "price": target_price, "qty": 1, "order_type": "LOC"} )
+                while len(buy_orders) < max_daily_orders+5:
+                    trial_qty=unit_buy_qty        # at least one buy order
+                    while trial_qty > 0:
+                        temp_buy_qty = buy_qty + trial_qty
+                        temp_target_price = float( round(l_band_value/(current_qty+temp_buy_qty ), 2) ) if current_qty+temp_buy_qty >0 else 0
+                        target_price = min(current_price*1.2,temp_target_price)
+                        daily_buy_sum = target_price*temp_buy_qty
+                        
+                        if daily_buy_sum <= buy_limit_value or buy_qty == 0:    # guarantee at least one buy order
+                            buy_qty = temp_buy_qty
+                            buy_orders.append( {"side": "BUY", "price": target_price, "qty": trial_qty, "order_type": "LOC"} )
+                            logger.debug(f"    Added BUY order: Price {target_price:.2f}, Qty {trial_qty}, Daily Buy Sum: {daily_buy_sum:.2f}")
+                            break
+                        else:
+                            logger.debug(f"    Trial Buy Qty {trial_qty} exceeds limit with Daily Buy Sum: {daily_buy_sum:.2f}, reducing trial qty to {trial_qty}")
+                            trial_qty -=1
+                            
+                    if trial_qty ==0:
+                        break                        
+                logger.debug(f"  Total Buy Orders Generated: {len(buy_orders)}, Total Buy Qty: {buy_qty}")
+                logger.debug(f"  Last order value: {buy_orders[-1]['price']*buy_orders[-1]['qty'] if buy_orders else 0:.2f}")
+            else:
+                buy_orders = []
+                logger.debug(f"  Current Price {current_price:.1f} is not favorable for buying based on L-Band Value {l_band_value:.1f}. No buy orders generated.")                
 
+    
+            # 3.2 Sell orders
+            if current_price*1.2 > u_band_value and current_qty >0:
+                current_u_gap = current_price * current_qty - u_band_value
+                expected_total_sell_qty = int(current_u_gap / current_price) if current_price > 0 else 0
+                unit_sell_qty = max(1, int(expected_total_sell_qty / max_daily_orders))
+                logger.debug(f"  Current Upper Gap: {current_u_gap},\n  Expected Total Sell Qty: {expected_total_sell_qty} based on\n    current qty {current_qty}\n    current price {current_price}")
+                logger.debug(f"  Calculated Unit Sell Qty: {unit_sell_qty} for Max Daily Orders: {max_daily_orders} - expected total sell qty / max daily orders")
+                sell_orders = []
+                sell_qty = 0
+                
+                while len(sell_orders) < max_daily_orders + 5:
+                    trial_qty = min(unit_sell_qty, sell_limit_qty - sell_qty)        # at least one sell order
+                    sell_qty +=  trial_qty
+                    target_price = float( round(u_band_value/(current_qty - sell_qty ), 2) ) if current_qty - sell_qty >0 else 0
+                    if sell_qty <sell_limit_qty:
+                        sell_orders.append( {"side": "SELL", "price": target_price, "qty": trial_qty, "order_type": "LOC"} )
+                        logger.debug(f"    Added SELL order: Price {target_price:.2f}, Qty {trial_qty}, Daily Sell Sum: {target_price*trial_qty:.2f}")
+                        continue
+                    elif sell_qty == sell_limit_qty:
+                        sell_orders.append( {"side": "SELL", "price": target_price, "qty": trial_qty, "order_type": "LOC"} )
+                        logger.debug(f"    Added SELL order: Price {target_price:.2f}, Qty {trial_qty}, Daily Sell Sum: {target_price*trial_qty:.2f}")
+                        break                        
+
+                    else:
+                        logger.Error(f"    Something went wrong in sell qty calculation. sell_qty: {sell_qty}, sell_limit_qty: {sell_limit_qty}")
+                        break
+                logger.debug(f"  Total Sell Orders Generated: {len(sell_orders)}, Total Sell Qty: {sell_qty}")
+                logger.debug(f"  Last order value: {sell_orders[-1]['price']*sell_orders[-1]['qty'] if sell_orders else 0:.2f}")
+
+                
+            else:
+                sell_orders = []
+                logger.debug(f"  Current Price {current_price:.1f} is not favorable for selling based on U-Band Value {u_band_value:.1f} or no current qty. No sell orders generated.")
+        
             # merge and return
             if len(buy_orders) > max_daily_orders:
                 merge_orders_unit= math.ceil( len(buy_orders) / max_daily_orders )

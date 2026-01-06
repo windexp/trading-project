@@ -39,7 +39,7 @@ class BaseStrategy(ABC):
         pass
 
     @abstractmethod
-    def _calculate_next_state(self, last_snapshot: StrategySnapshot) -> Dict[str, Any]:
+    def _calculate_next_state(self, last_snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
         """Calculate next state based on last snapshot."""
         pass
 

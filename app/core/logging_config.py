@@ -83,6 +83,8 @@ def setup_logging():
     
     # Strategy 로거 설정
     strategy_logger = logging.getLogger('app.services.strategies')
+    strategy_logger.setLevel(logging.DEBUG)  # 로거 레벨도 DEBUG로 명시
+    strategy_logger.propagate = False  # 루트 로거로 전파하지 않음
     strategy_handler = TimedRotatingFileHandler(
         filename=log_dir / "strategy.log",
         when='midnight',
@@ -91,7 +93,7 @@ def setup_logging():
         encoding='utf-8',
         atTime=kst_midnight
     )
-    strategy_handler.setLevel(logging.INFO)
+    strategy_handler.setLevel(logging.DEBUG)
     strategy_handler.setFormatter(formatter)
     strategy_handler.suffix = "%Y-%m-%d"
     strategy_logger.addHandler(strategy_handler)

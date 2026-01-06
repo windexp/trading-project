@@ -153,38 +153,6 @@ class InfBuyStrategy(BaseStrategy):
             logger.info("✅ Infinite Buy Routine Completed")
             return
 
-        
-        
-        # case completed or or completed sync after in_progress orders
-
-
-
-
-
-        # # 3. Place order and Create New Snapshot if needed
-        # if last_snapshot and last_snapshot.status == "PENDING":
-        #     logger.info(f"📸 Used Existing Snapshot (ID: {last_snapshot.id}, Status: PENDING)")
-        #     success = self._place_orders(last_snapshot)
-            
-        # else:            
-        #     new_snapshot = StrategySnapshot(
-        #         strategy_id=self.strategy.id,
-        #         status="PENDING",
-        #         cycle=cycle,
-        #         progress=current_state
-        #     )
-        #     logger.info(f"📸 Created New Snapshot (ID: {new_snapshot.id}, Status: PENDING)")
-        #     self.db.add(new_snapshot)
-        #     self.db.commit()
-        #     success = self._place_orders(new_snapshot)
-            
-        
-
-        
-        # if success:
-        #     logger.info("✅ Routine Completed")
-        # else:
-        #     logger.info(f"⏸️  Routine Pending (will retry on next execution)")
 
     def _create_initial_snapshot(self) -> StrategySnapshot:
         initial_state = {
@@ -285,6 +253,7 @@ class InfBuyStrategy(BaseStrategy):
         state['avg_price'] = new_avg
         state['balance'] = new_balance
         state['equity'] = round(new_balance + new_qty * current_price, 2)
+        state['price']= current_price
         
         # Check for Cycle Reset (if all sold)
         if new_qty <= 0.0001:  # Float safety
@@ -297,6 +266,7 @@ class InfBuyStrategy(BaseStrategy):
             state['avg_price'] = 0
             state['balance'] = new_balance
             state['equity'] = new_balance
+            state['price']= current_price
             # Increment cycle
             state['cycle'] = last_snapshot.cycle + 1
         else:

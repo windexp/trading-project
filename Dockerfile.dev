@@ -1,4 +1,4 @@
-# Python 3.11 Slim Image
+# Python 3.11 Slim Image - DEVELOPMENT
 FROM python:3.11-slim
 
 # Set Environment Variables
@@ -24,6 +24,6 @@ COPY . .
 
 # Expose Port
 EXPOSE 8000
-
-# Default Run Command (overridden by docker-compose.yml)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# test 변경
+# Run Command (Development - with reload, watching only app directory)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app", "--proxy-headers", "--forwarded-allow-ips", "*"]
