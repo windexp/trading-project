@@ -3,7 +3,7 @@
  * 로그 뷰어 관련 기능
  */
 
-let currentLogFile = 'trading.log';
+let currentLogFile = null;
 let logWrapEnabled = false;
 let allLogLines = [];
 let currentModuleFilter = 'ALL';
@@ -14,6 +14,14 @@ let currentModuleFilter = 'ALL';
 function showLogs() {
     hideAllViews();
     document.getElementById('logs-view').classList.add('active');
+    
+    // 사이드바 업데이트
+    updateSidebarNav();
+    const logsBtn = document.querySelector('.sidebar-nav-btn[data-view="logs"]');
+    if (logsBtn) {
+        logsBtn.classList.add('bg-white', 'shadow-sm');
+    }
+    
     loadLogs();
 }
 
@@ -22,11 +30,17 @@ function showLogs() {
  */
 async function loadLogs() {
     try {
-        // 로그 파일 목록 로드
-        await loadLogFilesList();
-        
+        // 로그 파일 목록 로드 (반환된 목록을 받아 기본 선택을 설정)
+        const files = await loadLogFilesList();
+
+        // 기본 선택 파일은 파일 목록을 로드한 뒤 설정 (첫 항목)
+        if (!currentLogFile && files && files.length > 0) {
+            currentLogFile = files[0].name;
+            document.getElementById('currentLogFileName').textContent = currentLogFile;
+        }
+
         // 현재 로그 파일 내용 로드
-        await loadLogContent(currentLogFile);
+        if (currentLogFile) await loadLogContent(currentLogFile);
         
     } catch (error) {
         console.error('Failed to load logs:', error);
@@ -51,9 +65,9 @@ async function loadLogFilesList() {
         const listContainer = document.getElementById('logFilesList');
         if (files.length === 0) {
             listContainer.innerHTML = `
-                <div class="list-group-item text-center text-muted py-4">
-                    <i class="bi bi-inbox fs-3"></i>
-                    <p class="mb-0 mt-2">No log files found</p>
+                <div class="min-h-[120px] flex items-center justify-center py-4 text-gray-400">
+                    <i class="bi bi-inbox text-3xl"></i>
+                    <p class="mb-0 mt-2 ms-2">No log files found</p>
                 </div>
             `;
             return;
@@ -61,34 +75,39 @@ async function loadLogFilesList() {
         
         listContainer.innerHTML = files.map(file => {
             const isActive = file.name === currentLogFile;
-            const sizeColor = file.size_mb > 10 ? 'text-danger' : file.size_mb > 5 ? 'text-warning' : 'text-muted';
-            
+            // Tailwind color mapping for file size indicator
+            const sizeColor = file.size_mb > 10 ? 'text-red-500' : file.size_mb > 5 ? 'text-yellow-500' : 'text-gray-500';
+
             return `
-                <a href="#" class="list-group-item list-group-item-action ${isActive ? 'active' : ''}" 
+                <a href="#" class="list-group-item block px-4 py-3 hover:bg-gray-50 ${isActive ? 'bg-sky-100' : ''} cursor-pointer no-underline text-current" 
                    onclick="selectLogFile('${file.name}', event); return false;">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <i class="bi bi-file-earmark-text me-2"></i>
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center">
+                            <i class="bi bi-file-earmark-text mr-2"></i>
                             <strong>${file.name}</strong>
                         </div>
-                        <div class="text-end">
-                            <span class="${sizeColor} small">${file.size_mb} MB</span>
+                        <div class="text-right">
+                            <span class="${sizeColor} text-sm">${file.size_mb} MB</span>
                             <br>
-                            <small class="text-muted">${file.modified_date}</small>
+                            <small class="text-gray-400 text-xs">${file.modified_date}</small>
                         </div>
                     </div>
                 </a>
             `;
         }).join('');
+
+        // 반환: 호출자(loadLogs)가 기본 선택을 결정할 수 있도록 파일 목록 반환
+        return files;
         
     } catch (error) {
         console.error('Failed to load log files list:', error);
         document.getElementById('logFilesList').innerHTML = `
-            <div class="list-group-item text-center text-danger py-4">
-                <i class="bi bi-exclamation-triangle fs-3"></i>
-                <p class="mb-0 mt-2">Failed to load log files</p>
+            <div class="min-h-[160px] flex items-center justify-center py-4 text-red-500">
+                <i class="bi bi-exclamation-triangle text-3xl"></i>
+                <p class="mb-0 mt-2 ms-2">Failed to load log files</p>
             </div>
         `;
+        return [];
     }
 }
 
@@ -106,14 +125,13 @@ async function selectLogFile(filename, event) {
         moduleFilterSelect.value = 'ALL';
     }
     
-    await loadLogContent(filename);
-    
-    // 파일 목록 UI 업데이트
+    // 파일 목록 UI 업데이트 (즉시 적용하여 클릭 반응을 빠르게 만듦)
     document.querySelectorAll('#logFilesList .list-group-item').forEach(item => {
         item.classList.remove('active');
     });
     if (event && event.target) {
-        event.target.closest('.list-group-item').classList.add('active');
+        const el = event.target.closest('.list-group-item');
+        if (el) el.classList.add('active');
     } else {
         // event가 없는 경우 filename으로 찾기
         const activeItem = document.querySelector(`#logFilesList .list-group-item[onclick*="${filename}"]`);
@@ -121,6 +139,9 @@ async function selectLogFile(filename, event) {
             activeItem.classList.add('active');
         }
     }
+
+    // 로그 내용은 비동기적으로 로드 (UI는 즉시 반응)
+    loadLogContent(filename).catch(err => console.error('loadLogContent error:', err));
 }
 
 /**

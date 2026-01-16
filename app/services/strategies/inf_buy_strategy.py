@@ -183,7 +183,7 @@ class InfBuyStrategy(BaseStrategy):
     def _calculate_next_state(self, last_snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
         """Calculate new state based on last snapshot and its filled orders."""
         state = last_snapshot.progress.copy()
-        orders = self.db.query(Order).filter(Order.snapshot_id == last_snapshot.id).all()
+        
         
         # Calculate filled orders summary
         buy_sum = {"qty": 0, "value": 0}
@@ -193,19 +193,30 @@ class InfBuyStrategy(BaseStrategy):
         old_qty = state.get('quantity', 0)
         
         # Update state based on FILLED orders
-        for order in orders:
-            if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
-                qty = order.filled_qty
-                filled_price = float(order.filled_price)
+        # for order in orders:
+        #     if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+        #         qty = order.filled_qty
+        #         filled_price = float(order.filled_price)
                 
-                if order.order_type == OrderType.BUY:
-                    buy_sum["qty"] += qty
-                    buy_sum["value"] += (filled_price * qty)
-                else:
-                    sell_sum["qty"] += qty
-                    sell_sum["value"] += (filled_price * qty)
-                    sell_sum["daily_profit"] += ((filled_price - old_avg) * qty)
-        
+        #         if order.order_type == OrderType.BUY:
+        #             buy_sum["qty"] += qty
+        #             buy_sum["value"] += (filled_price * qty)
+        #         else:
+        #             sell_sum["qty"] += qty
+        #             sell_sum["value"] += (filled_price * qty)
+        #             sell_sum["daily_profit"] += ((filled_price - old_avg) * qty)
+        snapshot_trade = state.get('snapshot_trade', {})
+        if snapshot_trade:
+            buy_sum["qty"] = snapshot_trade.get('buy', {}).get('qty', 0)
+            buy_sum["value"] = snapshot_trade.get('buy', {}).get('value', 0)
+            sell_sum["qty"] = snapshot_trade.get('sell', {}).get('qty', 0)
+            sell_sum["value"] = snapshot_trade.get('sell', {}).get('value', 0)
+            snapshot_profit=round(sell_sum["value"]-sell_sum["qty"]*old_avg, 2)
+        else:
+            buy_sum = {"qty": 0, "value": 0}
+            sell_sum = {"qty": 0, "value": 0}
+            snapshot_profit=0
+        logger.debug(f"  Filled Orders Summary \n    - Buy: {buy_sum}\n    - Sell: {sell_sum}, \n    Snapshot Profit: {snapshot_profit}")
         # Calculate new values
         temp_qty = old_qty - sell_sum["qty"]
         temp_amount = temp_qty * old_avg
@@ -216,11 +227,11 @@ class InfBuyStrategy(BaseStrategy):
             new_avg = 0
         else:
             new_avg = round(new_amount / new_qty, 2)
-        
+        logger.debug(f"  Calculated New Qty: {new_qty}, New Avg Price: {new_avg}")
         # Update investment: add half of sell profit
-        new_investment = round(state.get('investment', 0) + self.reinvestment_rate * sell_sum["daily_profit"], 2)
+        new_investment = round(state.get('investment', 0) + self.reinvestment_rate * snapshot_profit, 2)
         unit_investment = round(new_investment / self.division, 2) if self.division > 0 else 0
-        
+        logger.debug(f"  Updated Investment: {new_investment}, Unit Investment: {unit_investment}")
         # Update profit: add half of sell profit
         # new_profit = round(state.get('profit', 0) + self.reinvestment_rate * sell_sum["profit"], 2)
         
@@ -242,38 +253,39 @@ class InfBuyStrategy(BaseStrategy):
             (self.sell_gain - new_t * self.sell_gain / self.division * 2), 
             2
         )
-
+        logger.debug(f"  Calculated New T: {new_t}, New Star: {new_star}")
         # Update state
         state['current_t'] = new_t
         state['star'] = new_star
         state['investment'] = new_investment
         state['unit_investment'] = unit_investment
-        state['daily_profit'] = sell_sum["daily_profit"]    
+        state['previous_profit'] = snapshot_profit    
         state['quantity'] = new_qty
         state['avg_price'] = new_avg
         state['balance'] = new_balance
         state['equity'] = round(new_balance + new_qty * current_price, 2)
         state['price']= current_price
-        
+        state['snapshot_trade'] = {}
         # Check for Cycle Reset (if all sold)
         if new_qty <= 0.0001:  # Float safety
             state['current_t'] = 0
             state['star'] = self.sell_gain
             state['investment'] = new_investment  # Keep investment
             state['unit_investment'] = new_investment / self.division if new_investment else 0
-            state['daily_profit'] = 0
+            state['previous_profit'] = snapshot_profit    
             state['quantity'] = 0
             state['avg_price'] = 0
             state['balance'] = new_balance
             state['equity'] = new_balance
             state['price']= current_price
+            state['snapshot_trade'] = {}
             # Increment cycle
             state['cycle'] = last_snapshot.cycle + 1
         else:
             state['cycle'] = last_snapshot.cycle 
         
         logger.info(f"  State Update - T: {state['current_t']}, Qty: {state['quantity']}, "
-            f"Avg: {state['avg_price']}, Daily Profit: {state['daily_profit']}, Balance: {state['balance']}, Equity: {state['equity']}")
+            f"Avg: {state['avg_price']}, Previous Profit: {state['previous_profit']}, Balance: {state['balance']}, Equity: {state['equity']}")
         
         return state
 

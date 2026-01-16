@@ -165,11 +165,10 @@ class VRStrategy(BaseStrategy):
                 else:
                     sell_sum["qty"] += qty
                     sell_sum["value"] += (filled_price * qty)
-        snapshot.progress['cycle_trade'] = {"buy":buy_sum, "sell":sell_sum}
+        snapshot.progress['snapshot_trade'] = {"buy":buy_sum, "sell":sell_sum}
         self.db.commit()
-        return {"buy": buy_sum, "sell": sell_sum}
-        state['cycle_trade'] = {"buy": buy_sum, "sell": sell_sum}
-        snapshot.progress = state
+        return {"buy": buy_sum, "sell": sell_sum}       
+
     def _calculate_next_state(self, last_snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
         """Calculate new state based on last snapshot and its filled orders."""
         last_state = deepcopy(last_snapshot.progress)
@@ -177,10 +176,13 @@ class VRStrategy(BaseStrategy):
         # Update state based on filled orders
         last_pool = last_state.get('pool', 0)
         # 1. Get trade results from last snapshot
-        trade_results = self._snapshot_trade_results(last_snapshot)
+        # trade_results = self._snapshot_trade_results(last_snapshot)
+        trade_results = last_state.get('snapshot_trade', {'buy': {}, 'sell': {}})
         buy_sum = trade_results["buy"]
         sell_sum = trade_results["sell"]
-
+        logger.info(f"\n📊 Trade Results from Last Snapshot:")
+        logger.info(f"  Buy: {buy_sum}")
+        logger.info(f"  Sell: {sell_sum}")
         # 2. Update average price and quantity
         last_avg = last_state.get('avg_price', 0)
         last_qty = last_state.get('qty', 0)
@@ -234,7 +236,7 @@ class VRStrategy(BaseStrategy):
             # current_price = float(self.broker.get_price(self.ticker))
             
             # 2. Extract State Variables
-            trade_results = state.get('cycle_trade', {'buy': {}, 'sell': {}})
+            trade_results = state.get('snapshot_trade', {'buy': {}, 'sell': {}})
             cycle_pool = state.get('pool', 0)        # cash pool at the beginning of the cycle   
             
             # cycle_buy_amt = trade_results.get('buy', {}).get('value', 0)

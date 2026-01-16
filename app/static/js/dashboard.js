@@ -2,11 +2,26 @@
 // 대시보드 (전략 리스트) 관련 함수
 // ===================================
 
+// 사이드바 네비게이션 업데이트
+function updateSidebarNav() {
+    const buttons = document.querySelectorAll('.sidebar-nav-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('bg-white', 'shadow-sm');
+    });
+}
+
 // 대시보드 뷰로 전환
 function showDashboard() {
     hideAllViews();
     document.getElementById("dashboard-view").classList.add("active");
     currentStrategy = null;
+    
+    // 사이드바 업데이트
+    updateSidebarNav();
+    const dashboardBtn = document.querySelector('.sidebar-nav-btn[data-view="dashboard"]');
+    if (dashboardBtn) {
+        dashboardBtn.classList.add('bg-white', 'shadow-sm');
+    }
     
     // Clear price update interval
     if (priceUpdateInterval) {

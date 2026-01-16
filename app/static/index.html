@@ -5,33 +5,86 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dollar Miner Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <!-- Tailwind CDN (development quick test only) -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <!-- 기능별로 분리된 CSS 파일들 -->
     <link href="/static/css/style.css" rel="stylesheet">
     <link href="/static/css/dashboard.css" rel="stylesheet">
     <link href="/static/css/strategy.css" rel="stylesheet">
     <link href="/static/css/order.css" rel="stylesheet">
+    <style>
+        [v-cloak] { display: none !important; }
+        body { 
+            background-color: #f8fafc !important; 
+            color: #1e293b !important;
+        }
+    </style>
 </head>
 
-<body>
-    <div class="main-container">
-        <!-- Header -->
-        <div class="page-header d-flex justify-content-between align-items-center">
-            <h1><i class="bi bi-graph-up-arrow me-2"></i>Dollar Mining</h1>
-            <div class="d-flex gap-2 align-items-center">
-                <button class="btn btn-sm" onclick="showLogs()"
-                    style="height: 32px; background-color: #34495e; color: #ffffff; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                    <i class="fas fa-file-alt"></i> Logs
-                </button>
-                <div id="fearGreedBadge" class="fear-greed-indicator"
-                    style="height: 32px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-weight: 600; font-size: 0.85rem; line-height: 32px; box-shadow: 0 2px 6px rgba(0,0,0,0.12); transition: all 0.3s ease; background-color: #6c757d; color: #ffffff;">
-                    <i class="bi bi-hourglass-split me-2"></i>Loading...
+<body class="bg-slate-50">
+    <!-- 사이드바 -->
+    <aside id="sidebar" class="fixed left-0 top-0 h-full bg-slate-50 transition-all duration-300 z-50" style="width: 64px;">
+        <div class="pt-6 px-3 pb-6 space-y-8 h-full overflow-y-auto">
+            <!-- 브랜드 / 토글 버튼 -->
+            <button id="sidebarToggle" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white transition-all" onclick="toggleSidebar()">
+                <h1 class="font-bold flex items-center">
+                    <i class="fas fa-dollar-sign text-blue-600 transition-all mx-auto text-2xl" id="brandIcon"></i>
+                    <span id="brandText" class="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent text-xl" style="display: none;">Dollar Miner</span>
+                </h1>
+            </button>
+
+            <!-- 작업 섹션 -->
+            <div id="sidebarContent" style="display: none;">
+                <!-- <div class="space-y-2">
+                    <h3 class="text-xs font-semibold text-slate-700 uppercase tracking-wider px-3 mb-2">Execution</h3>
+                    <button onclick="runStrategy()" class="w-full px-3 py-2.5 text-slate-700 hover:bg-white rounded-lg text-xs font-medium transition-all flex items-center">
+                        <i class="fas fa-play mr-3 text-slate-500"></i>
+                        <span>Daily Routine</span>
+                    </button>
+                </div> -->
+
+                <!-- 페이지 섹션 -->
+                <div class="space-y-2 mt-8">
+                    <h3 class="text-xs font-semibold text-slate-700 uppercase tracking-wider px-3 mb-2">Pages</h3>
+                    <div class="space-y-1">
+                        <button onclick="showDashboard()" class="sidebar-nav-btn w-full px-3 py-2.5 text-slate-700 hover:bg-white rounded-lg text-xs font-medium transition-all flex items-center" data-view="dashboard">
+                            <i class="fas fa-home mr-3 text-slate-500"></i>
+                            <span>Dashboard</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 시스템 섹션 -->
+                <div class="space-y-2 mt-8">
+                    <h3 class="text-xs font-semibold text-slate-700 uppercase tracking-wider px-3 mb-2">System</h3>
+                    <button onclick="showLogs()" class="sidebar-nav-btn w-full px-3 py-2.5 text-slate-700 hover:bg-white rounded-lg text-xs font-medium transition-all flex items-center" data-view="logs">
+                        <i class="fas fa-file-alt mr-3 text-slate-500"></i>
+                        <span>View Logs</span>
+                    </button>
                 </div>
             </div>
         </div>
+    </aside>
+
+    <!-- 메인 컨텐츠 -->
+    <div id="mainContent" class="transition-all duration-300" style="margin-left: 64px;">
+        <div class="max-w-7xl mx-auto px-6 py-8">
+            <!-- Header -->
+            <div class="page-header d-flex justify-content-between align-items-center mb-6">
+                <h1><i class="bi bi-graph-up-arrow me-2"></i>Dollar Miner</h1>
+                <div class="d-flex gap-2 align-items-center">
+                    <div id="fearGreedBadge" class="fear-greed-indicator"
+                        style="height: 32px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-weight: 600; font-size: 0.85rem; line-height: 32px; box-shadow: 0 2px 6px rgba(0,0,0,0.12); transition: all 0.3s ease; background-color: #6c757d; color: #ffffff;">
+                        <i class="bi bi-hourglass-split me-2"></i>Loading...
+                    </div>
+                </div>
+            </div>
 
         <!-- VIEW: Dashboard -->
         <div id="dashboard-view" class="view-section active">
@@ -122,20 +175,19 @@
                     <div class="card">
                         <div class="card-header"><i class="bi bi-lightning me-2"></i>Quick Actions</div>
                         <div class="card-body d-grid gap-2">
-                            <button class="btn btn-success" onclick="runStrategy()">
+                            <button class="btn" onclick="runStrategy()" style="background-color: #e2e8f0; color: #475569; border: none; font-weight: 500;">
                                 <i class="bi bi-play-fill me-2"></i>Run Daily Routine
                             </button>
-                            <button class="btn btn-info" onclick="sendDailySummary()">
+                            <button class="btn" onclick="sendDailySummary()" style="background-color: #e2e8f0; color: #475569; border: none; font-weight: 500;">
                                 <i class="bi bi-send me-2"></i>Send Daily Summary
                             </button>
-                            <button id="deactivateStrategyBtn" class="btn btn-warning" onclick="deactivateStrategy()">
+                            <button id="deactivateStrategyBtn" class="btn" onclick="deactivateStrategy()" style="background-color: #e2e8f0; color: #475569; border: none; font-weight: 500;">
                                 <i class="bi bi-pause-circle me-2"></i>Deactivate Strategy
                             </button>
-                            <button id="activateStrategyBtn" class="btn btn-primary" onclick="activateStrategy()"
-                                style="display:none;">
+                            <button id="activateStrategyBtn" class="btn" onclick="activateStrategy()" style="display:none; background-color: #e2e8f0; color: #475569; border: none; font-weight: 500;">
                                 <i class="bi bi-play-circle me-2"></i>Activate Strategy
                             </button>
-                            <button class="btn btn-outline-danger" onclick="deleteStrategy()">
+                            <button class="btn" onclick="deleteStrategy()" style="background-color: #e2e8f0; color: #475569; border: none; font-weight: 500;">
                                 <i class="bi bi-trash me-2"></i>Delete Strategy
                             </button>
                         </div>
@@ -211,9 +263,9 @@
                             <span id="logFilesCount" class="badge bg-secondary">0 files</span>
                         </div>
                         <div class="card-body p-0 position-relative" style="min-height: 0;">
-                            <div class="list-group list-group-flush position-absolute top-0 start-0 end-0 bottom-0"
+                            <div class="list-group list-group-flush relative md:absolute md:inset-0 overflow-y-auto max-h-60 md:max-h-none"
                                 id="logFilesList"
-                                style="overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none;">
+                                style="scrollbar-width: none; -ms-overflow-style: none;">
                                 <style>
                                     /* Chrome, Safari, Opera에서 스크롤바 숨기기 */
                                     #logFilesList::-webkit-scrollbar {
@@ -267,7 +319,6 @@
                 </div>
             </div>
         </div>
-
     </div>
 
     <!-- MODAL: Create Strategy -->
