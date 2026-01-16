@@ -25,6 +25,11 @@ env/
 *.log
 logs/
 soxl_history_debug.json
+
+# Data files (user-specific)
+data/youtube_summaries/*.json
+data/youtube_channels.json
+
 # API Config & Sensitive files
 # api_config.yaml
 settings.yaml

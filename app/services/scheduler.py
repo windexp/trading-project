@@ -2,10 +2,13 @@
 스케줄러 서비스
 - 모든 활성화된 전략에 대해 일일 루틴 실행
 - APScheduler를 사용하여 매일 오후 6시에 실행
+- YouTube 채널 모니터링 (1시간마다)
 """
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from typing import Optional
 import pytz
@@ -27,6 +30,8 @@ class StrategyScheduler:
     
     def __init__(self):
         self.scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Seoul'))
+        # YouTube 분석용 별도 스레드 풀 (최대 2개 동시 실행)
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="youtube_worker")
         
     def start(self):
         """스케줄러 시작"""
@@ -48,16 +53,28 @@ class StrategyScheduler:
             replace_existing=True
         )
         
+        # 1시간마다 YouTube 새 영상 체크 및 분석
+        self.scheduler.add_job(
+            func=self.check_youtube_new_videos,
+            trigger=IntervalTrigger(hours=1),
+            id='youtube_video_check',
+            name='Check and analyze new YouTube videos',
+            replace_existing=True
+        )
+        
         self.scheduler.start()
         logger.info("✅ Strategy scheduler started")
-        logger.info("   - Daily routines: 6:30 PM KST")
-        logger.info("   - Daily summaries: 7:00 AM KST")
+        logger.info("   - Daily routines: 6:30 PM KST (Mon-Fri)")
+        logger.info("   - Daily summaries: 7:00 AM KST (Tue-Sat)")
+        logger.info("   - YouTube check: Every 1 hour")
         
     def stop(self):
         """스케줄러 중지"""
         if self.scheduler.running:
             self.scheduler.shutdown()
-            logger.info("Scheduler stopped")
+        # 실행 중인 YouTube 작업이 완료될 때까지 대기
+        self.executor.shutdown(wait=True, cancel_futures=False)
+        logger.info("Scheduler stopped")
     
     def execute_all_daily_routines(self):
         """모든 활성 전략의 daily routine 실행"""
@@ -346,6 +363,66 @@ class StrategyScheduler:
         except Exception as e:
             logger.error(f"❌ Error creating strategy instance: {e}")
             raise
+
+    def check_youtube_new_videos(self):
+        """YouTube 새 영상을 체크하고 분석합니다 (비동기 실행)."""
+        # 별도 스레드에서 실행하여 메인 스케줄러를 블로킹하지 않음
+        self.executor.submit(self._check_youtube_new_videos_worker)
+        logger.info("🎬 YouTube video check started in background thread")
+    
+    def _check_youtube_new_videos_worker(self):
+        """YouTube 체크 실제 작업 (별도 스레드에서 실행)."""
+        logger.info("=" * 80)
+        logger.info(f"🎬 YouTube Video Check - {datetime.now(pytz.timezone('Asia/Seoul'))}")
+        logger.info("=" * 80)
+        
+        try:
+            from app.services.market_analysis.youtube_summary import get_youtube_summary_service
+            
+            service = get_youtube_summary_service()
+            
+            # 1주일 이상 된 요약 파일 정리
+            deleted_count = service.cleanup_old_summaries(days=7)
+            if deleted_count > 0:
+                logger.info(f"🗑️  Cleaned up {deleted_count} old summary file(s)")
+            
+            # 등록된 채널 수 확인
+            channel_count = len(service.channel_ids)
+            if channel_count == 0:
+                logger.info("No YouTube channels registered. Skipping.")
+                return
+            
+            logger.info(f"Checking {channel_count} channel(s) for new videos...")
+            
+            # 새 영상 확인
+            unanalyzed = service.get_unanalyzed_videos()
+            
+            if not unanalyzed:
+                logger.info("No new videos to analyze.")
+                return
+            
+            logger.info(f"Found {len(unanalyzed)} new video(s) to analyze")
+            
+            # 새 영상 분석
+            results = service.check_and_analyze_new_videos()
+            
+            success_count = sum(1 for r in results if r.get('summary') and not r.get('error'))
+            error_count = len(results) - success_count
+            
+            logger.info("=" * 80)
+            logger.info(f"✅ YouTube Video Check Completed")
+            logger.info(f"   - Analyzed: {len(results)} video(s)")
+            logger.info(f"   - Success: {success_count}, Errors: {error_count}")
+            logger.info("=" * 80)
+            
+        except Exception as e:
+            logger.error(f"❌ Error in YouTube check worker: {e}")
+            logger.exception(e)
+
+    def run_youtube_check_now(self):
+        """테스트용: YouTube 체크 즉시 실행"""
+        logger.info("⚡ Manual YouTube check triggered")
+        self.check_youtube_new_videos()
 
 
 # 글로벌 스케줄러 인스턴스

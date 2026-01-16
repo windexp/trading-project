@@ -1,0 +1,2 @@
+# This file ensures the youtube_summaries directory is tracked by git
+# Summary JSON files are ignored via .gitignore

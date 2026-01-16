@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Discord
     DISCORD_WEBHOOK_URL: str | None = None
     
+    # Gemini API
+    GEMINI_API_KEY: str | None = None
+    
     # CORS
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
 

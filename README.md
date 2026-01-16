@@ -1,4 +1,4 @@
-# 달러마이닝 - 자동 매매 봇
+# Dollar Miner
 
 다중 매매 전략을 지원하는 자동 매매 시스템으로, 전략 관리 및 모니터링을 위한 웹 대시보드를 제공합니다.
 
@@ -16,8 +16,11 @@
   - Webhook: 일일 체결 요약 알림 (매일 오전 7시)
   - Bot: 주식 조회 및 AI 대화 기능
   - Gemini AI 기반 투자 관련 질의응답
+- YouTube 연동
+  - 투자 관련 채널 RSS 모니터링
+  - Gemini AI 기반 동영상 요약
 - 브로커 연동
-  - 한국투자증권 API 지원
+  - 한국투자증권 API 지원 (해외/국내)
   - 확장 가능한 브로커 아키텍처
 - 고급 기능
   - 백그라운드 일일 자동 실행
@@ -28,84 +31,110 @@
 
 ## 🛠️ 기술 스택
 
-백엔드:
-- FastAPI
-- SQLAlchemy
-- Alembic
-- Pydantic
+- **백엔드**: FastAPI, SQLAlchemy, Alembic, Pydantic
+- **프론트엔드**: Bootstrap 5, 순수 JavaScript
+- **인프라**: Docker & Docker Compose, SQLite
+- **AI**: Google Gemini API
+- **Python**: 3.11+
 
-프론트엔드:
-- Bootstrap 5
-- 순수 JavaScript
+## 📦 빠른 시작 (Quick Start)
 
-인프라:
+### 사전 요구사항
 - Docker & Docker Compose
-- PostgreSQL / SQLite 지원
-- Python 3.12+
-
-## 📦 설치
-
-사전 요구사항:
-- Python 3.12+
-- Docker & Docker Compose (선택)
 - Git
+- 한국투자증권 API 키 ([발급 안내](https://apiportal.koreainvestment.com/))
 
-방법 1 — Docker (권장)
+### 1단계: 저장소 클론
 ```bash
 git clone https://github.com/windexp/trading-project.git
 cd trading-project
+```
+
+### 2단계: 환경 설정
+```bash
+# 환경변수 파일 복사
 cp .env.example .env
-# .env 설정 후
-docker-compose up -d
+
+# docker-compose 예제 복사
+cp docker-compose.example.yml docker-compose.yml
 ```
 
-방법 2 — 로컬 개발
-```bash
-git clone https://github.com/windexp/trading-project.git
-cd trading-project
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-alembic upgrade head
-python -m uvicorn app.main:app --reload
-```
-
-## ⚙️ 설정
-
-프로젝트 루트에 `.env` 파일 생성:
+### 3단계: .env 파일 설정
+`.env` 파일을 열어 필수 항목을 설정합니다:
 
 ```env
-# Project Settings
-PROJECT_NAME="Dollar Mining"
-API_V1_STR="/api/v1"
-SECRET_KEY="your_secret_key"
+# 필수 설정
+SECRET_KEY="your_secret_key_here"
 
-# Database
-DATABASE_URL=sqlite:///./trading.db
+# 한국투자증권 API (필수)
+ACCOUNTS='[{"name": "계정명", "broker": "KIS", "account_no": "XXXXXXXX-01", "app_key": "your_app_key", "app_secret": "your_app_secret"}]'
 
-# Korea Investment API (KIS)
-ACCOUNTS='[{"name": "한투해외", "broker": "KIS", "account_no": "xxxxxxxx-01", "app_key": "your_key", "app_secret": "your_secret"}]'
-KIS_BASE_URL="https://openapi.koreainvestment.com:9443"
-
-# Discord Webhook (알림용)
-DISCORD_WEBHOOK_URL='{"private": "https://discord.com/api/webhooks/...", "public": "https://discord.com/api/webhooks/..."}'
-
-# Discord Bot (명령어용)
+# Discord (선택)
+DISCORD_WEBHOOK_URL='{"private": "webhook_url"}'
 DISCORD_BOT_TOKEN="your_bot_token"
-DISCORD_CHANNEL_ID='{"private": "channel_id", "public": "channel_id"}'
-DISCORD_BOT_DEFAULT_ACCOUNT="한투해외"
+DISCORD_CHANNEL_ID='{"private": "channel_id"}'
 
-# Gemini API (AI 기능, 무료)
+# Gemini AI (선택 - 무료)
 GEMINI_API_KEY="your_gemini_api_key"
-
-# Timezone
-TZ="Asia/Seoul"
 ```
 
-계정 설정:
-1. 웹 대시보드 접속: `http://localhost:8000`
-2. 브로커 계정 추가
-3. 첫 전략 생성
+### 4단계: 필요 파일/폴더 생성
+```bash
+# 빈 파일 및 폴더 생성
+touch trading.db token_cache.json
+mkdir -p logs data/youtube_summaries
+```
+
+### 5단계: Docker 네트워크 생성 (선택)
+리버스 프록시를 사용하는 경우:
+```bash
+docker network create proxy_net
+```
+
+### 6단계: 컨테이너 실행
+```bash
+docker compose up -d
+```
+
+### 7단계: 접속 확인
+- 웹 대시보드: `http://localhost:8000` (또는 설정한 포트)
+- 로그 확인: `docker compose logs -f`
+
+## 🐳 Docker 설정 상세
+
+`docker-compose.example.yml`에 다양한 네트워크 구성 옵션이 설명되어 있습니다:
+
+| 옵션 | 설명 | 사용 시나리오 |
+|------|------|---------------|
+| 포트 직접 노출 | `ports: "8000:8000"` | 단독 실행, 테스트 |
+| 외부 네트워크 | `external: true` | Traefik, Nginx Proxy 연동 |
+| 내부 네트워크 | `driver: bridge` | 다른 컨테이너와만 통신 |
+
+### 개발 모드 실행
+```bash
+# docker-compose.yml에서 command를 개발 모드로 변경 후
+docker compose up -d
+```
+
+## ⚙️ 상세 설정
+
+### 브로커 설정 (ACCOUNTS)
+```env
+# 해외 주식 계정
+{"name": "한투해외", "broker": "KIS", "account_no": "XXXXXXXX-01", ...}
+
+# 국내 주식 계정  
+{"name": "한투국내", "broker": "KIS_DOM", "account_no": "XXXXXXXX-01", ...}
+```
+
+### Discord 설정
+1. [Discord Developer Portal](https://discord.com/developers/applications)에서 봇 생성
+2. Bot Token과 Channel ID 획득
+3. Webhook URL 생성 (서버 설정 → 연동 → 웹후크)
+
+### Gemini API 설정 (무료)
+1. [Google AI Studio](https://aistudio.google.com/app/apikey)에서 API 키 발급
+2. `.env`의 `GEMINI_API_KEY`에 설정
 
 ## 📖 사용법
 
@@ -164,7 +193,8 @@ trading-project/
 ├── app/
 │   ├── api/v1/endpoints/      # API 엔드포인트
 │   │   ├── accounts.py
-│   │   └── strategies.py
+│   │   ├── strategies.py
+│   │   └── youtube.py
 │   ├── core/                  # 설정 및 DB 초기화
 │   │   ├── config.py
 │   │   ├── database.py
@@ -173,25 +203,29 @@ trading-project/
 │   │   ├── account.py
 │   │   ├── enums.py
 │   │   └── schema.py
-│   ├── schemas/               # Pydantic 스키마
-│   │   └── strategy_state.py
-│   ├── services/              # 비즈니스 로직 (브로커, 전략)
+│   ├── services/              # 비즈니스 로직
 │   │   ├── broker/            # 브로커 연동
 │   │   │   ├── base.py
 │   │   │   └── koreainvestment.py
-│   │   └── strategies/        # 매매 전략
-│   │       ├── base.py
-│   │       ├── vr_strategy.py
-│   │       └── inf_buy_strategy.py
-│   ├── static/                # 프론트엔드 자산 (HTML/CSS/JS)
-│   │   ├── index.html
-│   │   ├── css/
-│   │   └── js/
+│   │   ├── market_analysis/   # 시장 분석
+│   │   │   └── youtube_analyzer.py
+│   │   ├── strategies/        # 매매 전략
+│   │   │   ├── base.py
+│   │   │   ├── vr_strategy.py
+│   │   │   └── inf_buy_strategy.py
+│   │   ├── discord.py         # Discord Webhook
+│   │   ├── discord_bot_service.py  # Discord Bot
+│   │   └── scheduler.py       # 스케줄러
+│   ├── static/                # 프론트엔드 (HTML/CSS/JS)
 │   └── main.py                # 앱 진입점
-├── alembic/                    # 데이터베이스 마이그레이션
-├── scripts/                    # 유틸리티 스크립트
+├── alembic/                   # DB 마이그레이션
+├── data/                      # 사용자 데이터
+│   └── youtube_summaries/     # YouTube 요약
+├── logs/                      # 로그 파일
 ├── docker-compose.yml
+├── docker-compose.example.yml # Docker 설정 예제
 ├── Dockerfile
+├── .env.example               # 환경변수 예제
 ├── requirements.txt
 └── README.md
 ```

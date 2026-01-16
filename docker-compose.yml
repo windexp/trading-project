@@ -20,6 +20,7 @@ services:
       - ./.env:/app/.env        # Environment file (for hot-reload)
       - ./trading.db:/app/trading.db
       - ./logs:/app/logs
+      - ./data:/app/data        # YouTube channels and summaries
       - ./token_cache.json:/app/token_cache.json
     environment:
       - TZ=Asia/Seoul

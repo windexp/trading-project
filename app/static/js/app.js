@@ -8,33 +8,7 @@ let currentSnapshotId = null;
 let createModalInstance = null;
 let createSnapshotModalInstance = null;
 let priceUpdateInterval = null;
-let isSidebarOpen = false;
-
-// 사이드바 토글 함수
-function toggleSidebar() {
-    isSidebarOpen = !isSidebarOpen;
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.getElementById('mainContent');
-    const brandIcon = document.getElementById('brandIcon');
-    const brandText = document.getElementById('brandText');
-    const sidebarContent = document.getElementById('sidebarContent');
-    
-    if (isSidebarOpen) {
-        sidebar.style.width = '220px';
-        mainContent.style.marginLeft = '220px';
-        brandIcon.classList.remove('mx-auto');
-        brandIcon.classList.add('mr-2');
-        brandText.style.display = 'inline';
-        sidebarContent.style.display = 'block';
-    } else {
-        sidebar.style.width = '64px';
-        mainContent.style.marginLeft = '64px';
-        brandIcon.classList.remove('mr-2');
-        brandIcon.classList.add('mx-auto');
-        brandText.style.display = 'none';
-        sidebarContent.style.display = 'none';
-    }
-}
+// isSidebarOpen과 toggleSidebar는 index.html에 인라인으로 정의됨
 
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
