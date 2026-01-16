@@ -195,27 +195,43 @@ class BaseStrategy(ABC):
             return result
 
     def _place_single_order(self, order_data: Dict) -> Optional[Dict]:
-        """Place a single order via broker"""
-        if order_data['side'] == "BUY":
-            raw = self.broker.buy_order(
-                self.ticker, 
-                order_data['qty'], 
-                order_data['price'], 
-                order_type=order_data.get('order_type', "LOC")
-            )
-        else:
-            raw = self.broker.sell_order(
-                self.ticker, 
-                order_data['qty'], 
-                order_data['price'], 
-                order_type=order_data.get('order_type', "LOC")
-            )
-        return self.broker.parse_order_response(raw)
+        """Place a single order via broker with retry on network failure"""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                if order_data['side'] == "BUY":
+                    raw = self.broker.buy_order(
+                        self.ticker, 
+                        order_data['qty'], 
+                        order_data['price'], 
+                        order_type=order_data.get('order_type', "LOC")
+                    )
+                else:
+                    raw = self.broker.sell_order(
+                        self.ticker, 
+                        order_data['qty'], 
+                        order_data['price'], 
+                        order_type=order_data.get('order_type', "LOC")
+                    )
+                return self.broker.parse_order_response(raw)
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"  ⚠️ Order attempt {attempt + 1} failed: {e}. Retrying...")
+                else:
+                    logger.error(f"  ❌ Order failed after {max_retries} attempts: {e}")
+                    return None
 
     def _save_order(self, response: Dict, snapshot: StrategySnapshot, order_data: Dict):
         """Save order to database using standardized response"""
+        # REJECTED 주문의 경우 order_id가 None일 수 있으므로 임시 ID 생성
+        order_id = response.get('order_id')
+        if not order_id:
+            import uuid
+            order_id = f"REJ-{uuid.uuid4().hex[:12].upper()}"
+        
         db_order = Order(
-            order_id=response.get('order_id'),
+            order_id=order_id,
             snapshot_id=snapshot.id,
             order_status=OrderStatus.SUBMITTED if response.get('outcome') == RequestOutcome.ACCEPTED else OrderStatus.REJECTED,
             order_type=OrderType.BUY if order_data['side'] == "BUY" else OrderType.SELL,

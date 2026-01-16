@@ -68,6 +68,9 @@ class StrategyScheduler:
         logger.info("   - Daily summaries: 7:00 AM KST (Tue-Sat)")
         logger.info("   - YouTube check: Every 1 hour")
         
+        # 서버 시작 시 YouTube 체크 한 번 실행
+        self.check_youtube_new_videos()
+        
     def stop(self):
         """스케줄러 중지"""
         if self.scheduler.running:
@@ -97,10 +100,12 @@ class StrategyScheduler:
             
             # 각 전략에 대해 daily routine 실행
             for strategy in active_strategies:
+                strategy_name = strategy.name  # 에러 발생 전에 이름 저장
                 try:
                     self._execute_strategy_routine(strategy, db)
                 except Exception as e:
-                    logger.error(f"❌ Error executing strategy {strategy.name}: {e}")
+                    db.rollback()  # 트랜잭션 롤백 후 새 트랜잭션 시작
+                    logger.error(f"❌ Error executing strategy {strategy_name}: {e}")
                     logger.exception(e)
                     # 하나의 전략이 실패해도 다른 전략은 계속 실행
                     continue
@@ -117,33 +122,37 @@ class StrategyScheduler:
     
     def _execute_strategy_routine(self, strategy: Strategy, db: Session):
         """개별 전략의 daily routine 실행"""
+        strategy_name = strategy.name  # 에러 발생 전에 이름 저장
+        strategy_code = strategy.strategy_code
+        account_name = strategy.account_name
+        
         logger.info("-" * 80)
-        logger.info(f"▶️  Executing strategy: {strategy.name} ({strategy.strategy_code})")
-        logger.info(f"    Account: {strategy.account_name}")
+        logger.info(f"▶️  Executing strategy: {strategy_name} ({strategy_code})")
+        logger.info(f"    Account: {account_name}")
         logger.info("-" * 80)
         
         # 브로커 초기화
-        broker = get_broker(strategy.account_name, db)
+        broker = get_broker(account_name, db)
         if not broker:
-            logger.error(f"❌ Failed to initialize broker for account {strategy.account_name}")
+            logger.error(f"❌ Failed to initialize broker for account {account_name}")
             return
         
         # 전략 타입에 따라 실행
         try:
-            if strategy.strategy_code == "InfBuy":
+            if strategy_code == "InfBuy":
                 strategy_instance = InfBuyStrategy(strategy, broker, db)
-            elif strategy.strategy_code == "VR":
+            elif strategy_code == "VR":
                 strategy_instance = VRStrategy(strategy, broker, db)
             else:
-                logger.error(f"❌ Unknown strategy code: {strategy.strategy_code}")
+                logger.error(f"❌ Unknown strategy code: {strategy_code}")
                 return
             
             # Daily routine 실행
             strategy_instance.execute_daily_routine()
-            logger.info(f"✅ Strategy {strategy.name} completed successfully")
+            logger.info(f"✅ Strategy {strategy_name} completed successfully")
             
         except Exception as e:
-            logger.error(f"❌ Error executing strategy {strategy.name}: {e}")
+            logger.error(f"❌ Error executing strategy {strategy_name}: {e}")
             raise
     
     def execute_now(self):
@@ -409,6 +418,10 @@ class StrategyScheduler:
             success_count = sum(1 for r in results if r.get('summary') and not r.get('error'))
             error_count = len(results) - success_count
             
+            # 성공적으로 분석된 영상은 Discord에 알림
+            if success_count > 0:
+                self._send_youtube_notification(results)
+            
             logger.info("=" * 80)
             logger.info(f"✅ YouTube Video Check Completed")
             logger.info(f"   - Analyzed: {len(results)} video(s)")
@@ -423,6 +436,36 @@ class StrategyScheduler:
         """테스트용: YouTube 체크 즉시 실행"""
         logger.info("⚡ Manual YouTube check triggered")
         self.check_youtube_new_videos()
+
+    def _send_youtube_notification(self, results: list):
+        """새로 분석된 YouTube 영상을 Discord에 알림"""
+        try:
+            # 성공한 결과만 필터링
+            success_results = [r for r in results if r.get('summary') and not r.get('error')]
+            
+            if not success_results:
+                return
+            
+            discord = DiscordWebhook(channel="private")
+            
+            for result in success_results:
+                title = result.get('title', 'Unknown Title')
+                video_id = result.get('video_id', '')
+                channel_title = result.get('channel_title', '')
+                
+                # 영상 링크 생성
+                video_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+                
+                message = f"🎬 **새 영상 분석 완료**\n"
+                if channel_title:
+                    message += f"📺 {channel_title}\n"
+                message += f"📌 [{title}]({video_url})"
+                
+                discord.send_message(message)
+                logger.info(f"📤 Discord notification sent: {title}")
+                
+        except Exception as e:
+            logger.error(f"❌ Error sending YouTube notification: {e}")
 
 
 # 글로벌 스케줄러 인스턴스
