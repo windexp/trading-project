@@ -14,6 +14,9 @@ let snapshotState = {
     initialized: false
 };
 
+// Page-local current price for the shown strategy
+let currentPrice = 0;
+
 function getSnapshotModalInstance() {
     const el = document.getElementById('snapshotModal');
     if (!el) return null;
@@ -112,6 +115,7 @@ async function fetchCurrentPrice(strategy) {
         const ticker = strategy.base_params.ticker;
         if (!ticker) {
             priceEl.innerHTML = '<span class="text-muted">N/A</span>';
+            currentPrice = 0;
             return;
         }
 
@@ -127,10 +131,15 @@ async function fetchCurrentPrice(strategy) {
                     </div>
                     <small class="text-muted">Base: $${data.base ? data.base.toFixed(2) : 'N/A'}</small>
                 `;
+                // store in page-local currentPrice
+                currentPrice = Number(data.price);
+                return;
             } else {
                 if (!priceEl.querySelector('.fs-5')) {
                     priceEl.innerHTML = '<span class="text-muted">Price unavailable</span>';
                 }
+                currentPrice = 0;
+                return;
             }
         } else {
             const hasExisting = priceEl.querySelector('.fs-5');
@@ -145,6 +154,7 @@ async function fetchCurrentPrice(strategy) {
             } else {
                 priceEl.innerHTML = '<span class="text-danger">Error loading price</span>';
             }
+            currentPrice = 0;
         }
     } catch (e) {
         console.error('Error fetching price:', e);
@@ -160,6 +170,7 @@ async function fetchCurrentPrice(strategy) {
         } else {
             priceEl.innerHTML = '<span class="text-danger">Error</span>';
         }
+        currentPrice = 0;
     }
 }
 
@@ -306,10 +317,23 @@ async function loadSnapshots(reset = false) {
                     <span class="text-muted">T:</span> ${t} <span class="text-muted ms-2">Inv:</span> $${inv.toFixed(0)} <span class="text-muted ms-2">Equity:</span> $${equity.toFixed(0)}<br/>
                     <span class="text-muted">Qty:</span> ${qty} <span class="text-muted ms-2">Price:</span> $${price.toFixed(2)}
                 </div>`;
-            } else {
-                const v = snap.progress.current_v || 0;
-                const pool = snap.progress.current_pool || 0;
-                summary = `<span class="text-muted">V:</span> $${v.toFixed(0)} <span class="text-muted ms-2">Pool:</span> $${pool.toFixed(0)}`;
+            } else if (currentStrategy.strategy_code === "VR") {
+                const snapshot_trade = snap.progress.snapshot_trade || {};
+                const qty = snap.progress.qty || 0;
+                const buy = snapshot_trade.buy || {};
+                const sell = snapshot_trade.sell || {};
+                const buy_qty = buy.qty || 0;
+                const buy_amt = buy.amt || 0;
+                const sell_qty = sell.qty || 0;
+                const sell_amt = sell.amt || 0;
+                const v = snap.progress.v || 0;
+                const pool = snap.progress.pool || 0;
+                // summary = `<span class="text-muted">Target V:</span> $${v.toFixed(0)} <span class="text-muted ms-2">Pool:</span> $${(pool - buy_amt + sell_amt).toFixed(0)}<br/>`;
+                summary = `<div style='font-size:0.92em;line-height:1.2;'>
+                    <span class="text-muted">Target V:</span> ${v} <span class="text-muted ms-2">Pool:</span> $${(pool - buy_amt + sell_amt).toFixed(0)}<br/>
+                    <span class="text-muted">Value:</span> ${(qty+buy_qty-sell_qty)*currentPrice} <span class="text-muted ms-2">Qty.:</span> $${(qty+buy_qty-sell_qty)}<br/>
+                    
+                </div>`;
             }
 
             const statusClass = getStatusBadgeClass(snap.status);

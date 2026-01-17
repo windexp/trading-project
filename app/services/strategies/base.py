@@ -81,8 +81,8 @@ class BaseStrategy(ABC):
         raw_history = self.broker.get_transaction_history(self.ticker, start_date, end_date)
         history_list = self.broker.parse_history_response(raw_history)
         history_map = {h['order_id']: h for h in history_list}
-        buy_sum = {"qty": 0, "value": 0}
-        sell_sum = {"qty": 0, "value": 0}
+        buy_sum = {"qty": 0, "amt": 0}
+        sell_sum = {"qty": 0, "amt": 0}
         for order in orders:
             if order.order_id in history_map:
                 info = history_map[order.order_id]
@@ -91,16 +91,17 @@ class BaseStrategy(ABC):
                 order.filled_price = float(info.get('filled_amt', 0.0))/order.filled_qty if order.filled_qty else 0.0
                 if order.order_type == OrderType.BUY:
                     buy_sum["qty"] += order.filled_qty
-                    buy_sum["value"] += float(info.get('filled_amt', 0.0))
+                    buy_sum["amt"] += float(info.get('filled_amt', 0.0))
                 else:
                     sell_sum["qty"] += order.filled_qty
-                    sell_sum["value"] += float(info.get('filled_amt', 0.0))
+                    sell_sum["amt"] += float(info.get('filled_amt', 0.0))
             else:
                 logger.warning(f"Order {order.order_id} Not Found in History")
     
         # Check if all orders are finalized (no more SUBMITTED/PENDING)
         snapshot.progress['snapshot_trade'] = {"buy":buy_sum, "sell":sell_sum}
         flag_modified(snapshot, "progress")        
+        logger.info(f"  💾 Snapshot progress updated with trade summary: {snapshot.progress['snapshot_trade']}")
         self.db.commit()  # ← 추가!
         logger.info(f"  💾 {len(orders)} orders synced and committed")
             

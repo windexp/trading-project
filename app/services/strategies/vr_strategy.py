@@ -13,7 +13,7 @@ from app.services.broker.base import BaseBroker
 from app.services.strategies.base import BaseStrategy
 from enum import Enum
 from copy import deepcopy
-import pytz
+import pytz 
 
 class VRStrategy(BaseStrategy):
     """
@@ -84,8 +84,13 @@ class VRStrategy(BaseStrategy):
             logger.info(f"✅ Days passed: {days_passed}. Creating new snapshot.")
             last_snapshot.status = SnapshotStatus.COMPLETED
 
+        # To distinguish completed by days_passed or by manual completion
+        # 3. Create new snapshot if last is completed
+        if last_snapshot.status == SnapshotStatus.COMPLETED:
             # Calculate next state
+            
             new_state = self._calculate_next_state(last_snapshot, current_price)
+            
             cycle = last_snapshot.cycle + 1
             new_snapshot = StrategySnapshot(
             strategy_id=self.strategy.id,
@@ -134,7 +139,8 @@ class VRStrategy(BaseStrategy):
             "avg_price": 0,
             "equity": self.initial_investment,
             "cycle_profit": 0,
-            "cycle_price": current_price
+            "cycle_price": current_price,
+            "snapshot_trade": {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}}
         }
         cycle = 1
         initial_snapshot = StrategySnapshot(
@@ -147,27 +153,27 @@ class VRStrategy(BaseStrategy):
         self.db.add(initial_snapshot)
         self.db.commit()
         return initial_snapshot
-    def _snapshot_trade_results(self, snapshot: StrategySnapshot) -> Dict[str, Any]:
-        """Update snapshot with trade results from its orders."""
+    # def _snapshot_trade_results(self, snapshot: StrategySnapshot) -> Dict[str, Any]:
+    #     """Update snapshot with trade results from its orders."""
         
-        orders = self.db.query(Order).filter(Order.snapshot_id == snapshot.id).all()
-        # Update state based on filled orders
-        buy_sum = {"qty": 0, "value": 0}
-        sell_sum = {"qty": 0, "value": 0}
+    #     orders = self.db.query(Order).filter(Order.snapshot_id == snapshot.id).all()
+    #     # Update state based on filled orders
+    #     buy_sum = {"qty": 0, "amt": 0}
+    #     sell_sum = {"qty": 0, "amt": 0}
 
-        for order in orders:
-            if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
-                qty = order.filled_qty
-                filled_price = float(order.filled_price)
-                if order.order_type == OrderType.BUY:
-                    buy_sum["qty"] += qty
-                    buy_sum["value"] += (filled_price * qty)
-                else:
-                    sell_sum["qty"] += qty
-                    sell_sum["value"] += (filled_price * qty)
-        snapshot.progress['snapshot_trade'] = {"buy":buy_sum, "sell":sell_sum}
-        self.db.commit()
-        return {"buy": buy_sum, "sell": sell_sum}       
+    #     for order in orders:
+    #         if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+    #             qty = order.filled_qty
+    #             filled_price = float(order.filled_price)
+    #             if order.order_type == OrderType.BUY:
+    #                 buy_sum["qty"] += qty
+    #                 buy_sum["amt"] += (filled_price * qty)
+    #             else:
+    #                 sell_sum["qty"] += qty
+    #                 sell_sum["amt"] += (filled_price * qty)
+    #     snapshot.progress['snapshot_trade'] = {"buy":buy_sum, "sell":sell_sum}
+    #     self.db.commit()
+    #     return {"buy": buy_sum, "sell": sell_sum}       
 
     def _calculate_next_state(self, last_snapshot: StrategySnapshot, current_price) -> Dict[str, Any]:
         """Calculate new state based on last snapshot and its filled orders."""
@@ -186,18 +192,20 @@ class VRStrategy(BaseStrategy):
         # 2. Update average price and quantity
         last_avg = last_state.get('avg_price', 0)
         last_qty = last_state.get('qty', 0)
-        cycle_profit=sell_sum["value"] - (sell_sum["qty"] * last_avg)                    
+        logger.debug(f"sell_sum: {sell_sum}   ")
+        cycle_profit=sell_sum["amt"] - (sell_sum["qty"] * last_avg)     
+        
         temp_qty = last_qty - sell_sum["qty"]
         temp_amount = temp_qty * last_avg
         temp_qty = temp_qty + buy_sum["qty"]
-        temp_amount = temp_amount + buy_sum["value"]
+        temp_amount = temp_amount + buy_sum["amt"]
         if temp_qty == 0:
             new_avg = 0
         else:
-            new_avg = temp_amount / temp_qty
+            new_avg = round(temp_amount / temp_qty, 2)
         # 3. Update quantity and pool
         new_qty = temp_qty
-        temp_pool = last_pool - buy_sum["value"] + sell_sum["value"] 
+        temp_pool = last_pool - buy_sum["amt"] + sell_sum["amt"] 
         # 4. calculate new V
         if last_state.get('v'):
             r_inc = 1 + last_pool / last_state['v'] / self.g_factor
@@ -208,8 +216,8 @@ class VRStrategy(BaseStrategy):
         else:
             logger.error("❌ [Error] V is not defined in state.")
             raise ValueError("V is not defined in state.")
-        new_v = last_state['v'] * r_inc + self.periodic_investment
-        new_pool = temp_pool + self.periodic_investment
+        new_v = round(last_state['v'] * r_inc + self.periodic_investment, 2)
+        new_pool = round(temp_pool + self.periodic_investment, 2)
         equity = new_qty * current_price + new_pool
         logger.info(f"\n📊 _calculate_next_state called:")
         new_state = {}
@@ -221,6 +229,7 @@ class VRStrategy(BaseStrategy):
         new_state['equity'] = equity
         new_state['cycle_profit'] = cycle_profit
         new_state['cycle_price'] = current_price
+        new_state["snapshot_trade"] = {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}}
         
         logger.info(f"  Calculated New State:")
         for key, value in new_state.items():    
@@ -239,12 +248,11 @@ class VRStrategy(BaseStrategy):
             trade_results = state.get('snapshot_trade', {'buy': {}, 'sell': {}})
             cycle_pool = state.get('pool', 0)        # cash pool at the beginning of the cycle   
             
-            # cycle_buy_amt = trade_results.get('buy', {}).get('value', 0)
-            # cycle_sell_amt = trade_results.get('sell', {}).get('value', 0)
+
             cycle_buy_qty = trade_results.get('buy', {}).get('qty', 0)
             cycle_sell_qty = trade_results.get('sell', {}).get('qty', 0)
             current_qty = state.get('qty', 0) + cycle_buy_qty - cycle_sell_qty
-            # current_pool = cycle_pool + cycle_sell_amt - cycle_buy_amt
+            
 
             v = state.get('v', 0)
             u_band_value = (1+self.u_band) * v
@@ -389,42 +397,42 @@ class VRStrategy(BaseStrategy):
             last_buy_submitted = 0
             last_sell_submitted = 0
             last_buy_qty = 0
-            last_buy_value = 0.0
+            last_buy_amt = 0.0
             last_sell_qty = 0
-            last_sell_value = 0.0
+            last_sell_amt = 0.0
             
             for order in last_orders:
                 if order.order_type == OrderType.BUY:
                     last_buy_submitted += 1
                     if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                         last_buy_qty += order.filled_qty
-                        last_buy_value += float(order.filled_price * order.filled_qty)
+                        last_buy_amt += float(order.filled_price * order.filled_qty)
                 else:
                     last_sell_submitted += 1
                     if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                         last_sell_qty += order.filled_qty
-                        last_sell_value += float(order.filled_price * order.filled_qty)
+                        last_sell_amt += float(order.filled_price * order.filled_qty)
             
             # Snapshot Orders 집계 (현재 스냅샷의 모든 주문)
             snapshot_buy_qty = 0
-            snapshot_buy_value = 0.0
+            snapshot_buy_amt = 0.0
             snapshot_sell_qty = 0
-            snapshot_sell_value = 0.0
+            snapshot_sell_amt = 0.0
             
             for order in snapshot_orders:
                 if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                     if order.order_type == OrderType.BUY:
                         snapshot_buy_qty += order.filled_qty
-                        snapshot_buy_value += float(order.filled_price * order.filled_qty)
+                        snapshot_buy_amt += float(order.filled_price * order.filled_qty)
                     else:
                         snapshot_sell_qty += order.filled_qty
-                        snapshot_sell_value += float(order.filled_price * order.filled_qty)
+                        snapshot_sell_amt += float(order.filled_price * order.filled_qty)
             
             # 평균 가격 계산
-            last_buy_avg = last_buy_value / last_buy_qty if last_buy_qty > 0 else 0
-            last_sell_avg = last_sell_value / last_sell_qty if last_sell_qty > 0 else 0
-            snapshot_buy_avg = snapshot_buy_value / snapshot_buy_qty if snapshot_buy_qty > 0 else 0
-            snapshot_sell_avg = snapshot_sell_value / snapshot_sell_qty if snapshot_sell_qty > 0 else 0
+            last_buy_avg = last_buy_amt / last_buy_qty if last_buy_qty > 0 else 0
+            last_sell_avg = last_sell_amt / last_sell_qty if last_sell_qty > 0 else 0
+            snapshot_buy_avg = snapshot_buy_amt / snapshot_buy_qty if snapshot_buy_qty > 0 else 0
+            snapshot_sell_avg = snapshot_sell_amt / snapshot_sell_qty if snapshot_sell_qty > 0 else 0
             
             # 현재 상태
             state = last_snapshot.progress
@@ -449,13 +457,13 @@ class VRStrategy(BaseStrategy):
                     "buy": {
                         "submitted": last_buy_submitted,
                         "filled_qty": last_buy_qty,
-                        "filled_value": round(last_buy_value, 2),
+                        "filled_amt": round(last_buy_amt, 2),
                         "avg_price": round(last_buy_avg, 2),
                     },
                     "sell": {
                         "submitted": last_sell_submitted,
                         "filled_qty": last_sell_qty,
-                        "filled_value": round(last_sell_value, 2),
+                        "filled_amt": round(last_sell_amt, 2),
                         "avg_price": round(last_sell_avg, 2),
                     }
                 },
@@ -464,12 +472,12 @@ class VRStrategy(BaseStrategy):
                     "total": len(snapshot_orders),
                     "buy": {
                         "filled_qty": snapshot_buy_qty,
-                        "filled_value": round(snapshot_buy_value, 2),
+                        "filled_amt": round(snapshot_buy_amt, 2),
                         "avg_price": round(snapshot_buy_avg, 2),
                     },
                     "sell": {
                         "filled_qty": snapshot_sell_qty,
-                        "filled_value": round(snapshot_sell_value, 2),
+                        "filled_amt": round(snapshot_sell_amt, 2),
                         "avg_price": round(snapshot_sell_avg, 2),
                     }
                 }

@@ -164,7 +164,7 @@ class InfBuyStrategy(BaseStrategy):
             "quantity": 0,
             "balance": self.initial_investment, 
             "equity": self.initial_investment,
-            "daily_profit": 0,
+            "snapshot_trade": {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}},
             "cycle": 0
         }
         cycle = 0
@@ -186,8 +186,8 @@ class InfBuyStrategy(BaseStrategy):
         
         
         # Calculate filled orders summary
-        buy_sum = {"qty": 0, "value": 0}
-        sell_sum = {"qty": 0, "value": 0, "daily_profit": 0}
+        buy_sum = {"qty": 0, "amt": 0}
+        sell_sum = {"qty": 0, "amt": 0}
         
         old_avg = state.get('avg_price', 0)
         old_qty = state.get('quantity', 0)
@@ -208,20 +208,20 @@ class InfBuyStrategy(BaseStrategy):
         snapshot_trade = state.get('snapshot_trade', {})
         if snapshot_trade:
             buy_sum["qty"] = snapshot_trade.get('buy', {}).get('qty', 0)
-            buy_sum["value"] = snapshot_trade.get('buy', {}).get('value', 0)
+            buy_sum["amt"] = snapshot_trade.get('buy', {}).get('amt', 0)
             sell_sum["qty"] = snapshot_trade.get('sell', {}).get('qty', 0)
-            sell_sum["value"] = snapshot_trade.get('sell', {}).get('value', 0)
-            snapshot_profit=round(sell_sum["value"]-sell_sum["qty"]*old_avg, 2)
+            sell_sum["amt"] = snapshot_trade.get('sell', {}).get('amt', 0)
+            snapshot_profit=round(sell_sum["amt"]-sell_sum["qty"]*old_avg, 2)
         else:
-            buy_sum = {"qty": 0, "value": 0}
-            sell_sum = {"qty": 0, "value": 0}
+            buy_sum = {"qty": 0, "amt": 0}
+            sell_sum = {"qty": 0, "amt": 0}
             snapshot_profit=0
         logger.debug(f"  Filled Orders Summary \n    - Buy: {buy_sum}\n    - Sell: {sell_sum}, \n    Snapshot Profit: {snapshot_profit}")
         # Calculate new values
         temp_qty = old_qty - sell_sum["qty"]
         temp_amount = temp_qty * old_avg
         new_qty = temp_qty + buy_sum["qty"]
-        new_amount = temp_amount + buy_sum["value"]
+        new_amount = temp_amount + buy_sum["amt"]
         
         if new_qty <= 0.0001:
             new_avg = 0
@@ -238,8 +238,8 @@ class InfBuyStrategy(BaseStrategy):
         # Update balance
         new_balance = round(
             state.get('balance', 0) 
-            + sell_sum["value"] 
-            - buy_sum["value"], 
+            + sell_sum["amt"] 
+            - buy_sum["amt"], 
             2
         )
         
@@ -265,7 +265,7 @@ class InfBuyStrategy(BaseStrategy):
         state['balance'] = new_balance
         state['equity'] = round(new_balance + new_qty * current_price, 2)
         state['price']= current_price
-        state['snapshot_trade'] = {}
+        state['snapshot_trade'] = {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}}
         # Check for Cycle Reset (if all sold)
         if new_qty <= 0.0001:  # Float safety
             state['current_t'] = 0
@@ -278,7 +278,7 @@ class InfBuyStrategy(BaseStrategy):
             state['balance'] = new_balance
             state['equity'] = new_balance
             state['price']= current_price
-            state['snapshot_trade'] = {}
+            state['snapshot_trade'] = {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}}
             # Increment cycle
             state['cycle'] = last_snapshot.cycle + 1
         else:
@@ -473,18 +473,18 @@ class InfBuyStrategy(BaseStrategy):
             
             # Cycle 주문 집계
             cycle_buy_qty = 0
-            cycle_buy_value = 0.0
+            cycle_buy_amt = 0.0
             cycle_sell_qty = 0
-            cycle_sell_value = 0.0
+            cycle_sell_amt   = 0.0
             
             for order in all_orders:
                 if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                     if order.order_type == OrderType.BUY:
                         cycle_buy_qty += order.filled_qty
-                        cycle_buy_value += float(order.filled_price * order.filled_qty)
+                        cycle_buy_amt += float(order.filled_price * order.filled_qty)
                     else:
                         cycle_sell_qty += order.filled_qty
-                        cycle_sell_value += float(order.filled_price * order.filled_qty)
+                        cycle_sell_amt += float(order.filled_price * order.filled_qty)
             
             # Last 주문 집계 - Submitted
             last_buy_submitted = 0
@@ -492,27 +492,27 @@ class InfBuyStrategy(BaseStrategy):
             
             # Last 주문 집계 - Filled
             last_buy_qty = 0
-            last_buy_value = 0.0
+            last_buy_amt = 0.0
             last_sell_qty = 0
-            last_sell_value = 0.0
+            last_sell_amt = 0.0
             
             for order in last_orders:
                 if order.order_type == OrderType.BUY:
                     last_buy_submitted += 1
                     if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                         last_buy_qty += order.filled_qty
-                        last_buy_value += float(order.filled_price * order.filled_qty)
+                        last_buy_amt += float(order.filled_price * order.filled_qty)
                 else:
                     last_sell_submitted += 1
                     if order.order_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                         last_sell_qty += order.filled_qty
-                        last_sell_value += float(order.filled_price * order.filled_qty)
+                        last_sell_amt += float(order.filled_price * order.filled_qty)
             
             # 평균 가격 계산
-            cycle_buy_avg = cycle_buy_value / cycle_buy_qty if cycle_buy_qty > 0 else 0
-            cycle_sell_avg = cycle_sell_value / cycle_sell_qty if cycle_sell_qty > 0 else 0
-            last_buy_avg = last_buy_value / last_buy_qty if last_buy_qty > 0 else 0
-            last_sell_avg = last_sell_value / last_sell_qty if last_sell_qty > 0 else 0
+            cycle_buy_avg = cycle_buy_amt / cycle_buy_qty if cycle_buy_qty > 0 else 0
+            cycle_sell_avg = cycle_sell_amt / cycle_sell_qty if cycle_sell_qty > 0 else 0
+            last_buy_avg = last_buy_amt / last_buy_qty if last_buy_qty > 0 else 0
+            last_sell_avg = last_sell_amt / last_sell_qty if last_sell_qty > 0 else 0
             
             # 현재 상태
             state = last_snapshot.progress
@@ -531,7 +531,8 @@ class InfBuyStrategy(BaseStrategy):
                     "equity": state.get('equity', 0),
                     "investment": state.get('investment', 0),
                     "current_t": state.get('current_t', 0),
-                    "daily_profit": state.get('daily_profit', 0),
+                    "snapshot_trade": state.get('snapshot_trade', {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}}),
+                        
                 },
                 "last_orders": {
                     "snapshot_id": last_snapshot.id,
@@ -539,13 +540,13 @@ class InfBuyStrategy(BaseStrategy):
                     "buy": {
                         "submitted": last_buy_submitted,
                         "filled_qty": last_buy_qty,
-                        "filled_value": round(last_buy_value, 2),
+                        "filled_amt": round(last_buy_amt, 2),
                         "avg_price": round(last_buy_avg, 2),
                     },
                     "sell": {
                         "submitted": last_sell_submitted,
                         "filled_qty": last_sell_qty,
-                        "filled_value": round(last_sell_value, 2),
+                        "filled_amt": round(last_sell_amt, 2),
                         "avg_price": round(last_sell_avg, 2),
                     }
                 },
@@ -553,12 +554,12 @@ class InfBuyStrategy(BaseStrategy):
                     "total": len(all_orders),
                     "buy": {
                         "filled_qty": cycle_buy_qty,
-                        "filled_value": round(cycle_buy_value, 2),
+                        "filled_amt": round(cycle_buy_amt, 2),
                         "avg_price": round(cycle_buy_avg, 2),
                     },
                     "sell": {
                         "filled_qty": cycle_sell_qty,
-                        "filled_value": round(cycle_sell_value, 2),
+                        "filled_amt": round(cycle_sell_amt, 2),
                         "avg_price": round(cycle_sell_avg, 2),
                     }
                 }
