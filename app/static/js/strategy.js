@@ -319,6 +319,7 @@ async function loadSnapshots(reset = false) {
                 </div>`;
             } else if (currentStrategy.strategy_code === "VR") {
                 const snapshot_trade = snap.progress.snapshot_trade || {};
+                const equity = snap.progress.equity || 0;
                 const qty = snap.progress.qty || 0;
                 const buy = snapshot_trade.buy || {};
                 const sell = snapshot_trade.sell || {};
@@ -327,11 +328,12 @@ async function loadSnapshots(reset = false) {
                 const sell_qty = sell.qty || 0;
                 const sell_amt = sell.amt || 0;
                 const v = snap.progress.v || 0;
+                const cycle_price = snap.progress.cycle_price || 0;
                 const pool = snap.progress.pool || 0;
                 // summary = `<span class="text-muted">Target V:</span> $${v.toFixed(0)} <span class="text-muted ms-2">Pool:</span> $${(pool - buy_amt + sell_amt).toFixed(0)}<br/>`;
                 summary = `<div style='font-size:0.92em;line-height:1.2;'>
-                    <span class="text-muted">Target V:</span> ${v} <span class="text-muted ms-2">Pool:</span> $${(pool - buy_amt + sell_amt).toFixed(0)}<br/>
-                    <span class="text-muted">Value:</span> ${(qty+buy_qty-sell_qty)*currentPrice} <span class="text-muted ms-2">Qty.:</span> $${(qty+buy_qty-sell_qty)}<br/>
+                    <span class="text-muted">Target V:</span> ${v} <span class="text-muted ms-2">Qty.:</span> $${(qty+buy_qty-sell_qty)}<br/>
+                    <span class="text-muted">Equity:</span> ${equity} <span class="text-muted ms-2">Amount:</span> $${(cycle_price* qty).toFixed(0)} <span class="text-muted ms-2">Pool:</span> $${(pool - buy_amt + sell_amt).toFixed(0)}<br/>
                     
                 </div>`;
             }

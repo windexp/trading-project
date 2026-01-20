@@ -51,3 +51,72 @@
 #snapshotTableContainer::-webkit-scrollbar {
     display: none; /* Chrome, Safari, Opera */
 }
+
+/* ===================================
+   모바일 반응형 - 대시보드
+   =================================== */
+
+@media (max-width: 768px) {
+    /* 대시보드 헤더 */
+    #dashboard-view > .d-flex.justify-content-between {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    #dashboard-view > .d-flex.justify-content-between > div {
+        width: 100%;
+    }
+    
+    #dashboard-view > .d-flex.justify-content-between > .btn-primary {
+        width: 100%;
+    }
+    
+    /* 전략 테이블 */
+    #strategyListBody tr {
+        font-size: 0.75rem;
+    }
+    
+    /* Actions 버튼 작게 */
+    #strategyListBody .btn-sm {
+        padding: 3px 6px;
+        font-size: 0.65rem;
+        min-height: auto;
+    }
+    
+    /* 빈 상태 메시지 */
+    .empty-state {
+        padding: 24px 12px;
+    }
+    
+    .empty-state i {
+        font-size: 1.8rem;
+    }
+    
+    .empty-state p {
+        font-size: 0.8rem;
+    }
+    
+    .empty-state small {
+        font-size: 0.7rem;
+    }
+}
+
+@media (max-width: 480px) {
+    /* 테이블 Actions 열 숨기기 - 클릭으로 상세 보기 유도 */
+    #dashboard-view .table th:last-child,
+    #dashboard-view .table td:last-child {
+        display: none;
+    }
+    
+    #strategyListBody tr {
+        font-size: 0.7rem;
+    }
+    
+    .empty-state {
+        padding: 20px 10px;
+    }
+    
+    .empty-state i {
+        font-size: 1.5rem;
+    }
+}

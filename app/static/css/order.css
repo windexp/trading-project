@@ -40,3 +40,61 @@
     background-color: var(--primary-light) !important;
     color: var(--primary-hover);
 }
+
+/* ===================================
+   모바일 반응형 - 주문 테이블
+   =================================== */
+
+@media (max-width: 768px) {
+    /* 주문 테이블 */
+    #snapshotOrdersBody {
+        font-size: 0.65rem !important;
+    }
+    
+    #snapshotOrdersBody td {
+        padding: 5px 3px !important;
+    }
+    
+    #snapshotOrdersBody th {
+        padding: 5px 3px !important;
+        font-size: 0.6rem !important;
+    }
+    
+    /* 버튼 작게 */
+    .btn-xs {
+        padding: 2px 4px !important;
+        font-size: 0.6em !important;
+    }
+    
+    /* 상태 드롭다운 */
+    .form-select.order-status-dropdown {
+        font-size: 0.65em !important;
+        padding: 2px 3px !important;
+        min-width: 60px !important;
+        max-width: 80px !important;
+    }
+}
+
+@media (max-width: 480px) {
+    /* 주문 테이블 일부 열 숨기기 */
+    #snapshotOrdersBody th:nth-child(1),
+    #snapshotOrdersBody td:nth-child(1) {
+        display: none; /* Time 열 숨기기 */
+    }
+    
+    .btn-xs {
+        padding: 1px 3px !important;
+        font-size: 0.55em !important;
+    }
+    
+    #snapshotOrdersBody {
+        font-size: 0.6rem !important;
+    }
+    
+    .form-select.order-status-dropdown {
+        font-size: 0.6em !important;
+        min-width: 55px !important;
+    }
+}
+    }
+}

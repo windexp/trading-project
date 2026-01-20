@@ -20,12 +20,14 @@ class AnalyzeRequest(BaseModel):
     video_id: str
     title: str
     channel_name: str
-    channel_id: Optional[str] = None
+    source_id: Optional[str] = None
 
 
 class ChannelRequest(BaseModel):
-    """채널 추가/수정 요청"""
-    channel_id: str
+    """채널/플레이리스트 추가 요청"""
+    type: str = "channel"  # "channel" or "playlist"
+    channel_id: Optional[str] = ""
+    playlist_id: Optional[str] = ""
     channel_name: Optional[str] = ""
     custom_prompt: Optional[str] = ""
     enabled: Optional[bool] = True
@@ -65,13 +67,21 @@ class SummaryResponse(BaseModel):
 
 
 @router.get("/videos")
-async def get_latest_videos(limit: int = 10):
+async def get_latest_videos(limit: int = 10, source_id: Optional[str] = None):
     """
     등록된 채널의 최신 영상 목록을 가져옵니다.
+    
+    Args:
+        limit: 채널당 가져올 영상 수
+        source_id: 필터링할 소스 ID (channel_id 또는 playlist_id)
     """
     try:
         service = get_youtube_summary_service()
         videos = service.get_all_latest_videos(limit_per_channel=limit)
+        
+        # 소스별 필터링
+        if source_id:
+            videos = [v for v in videos if v.get('source_id') == source_id]
         
         # 각 영상에 분석 여부 추가
         for video in videos:
@@ -80,7 +90,8 @@ async def get_latest_videos(limit: int = 10):
         return {
             "videos": videos,
             "total": len(videos),
-            "channels": len(service.channel_ids)
+            "channels": len(service.channel_ids),
+            "filtered_by": source_id
         }
     except Exception as e:
         logger.error(f"Failed to get latest videos: {e}")
@@ -88,17 +99,22 @@ async def get_latest_videos(limit: int = 10):
 
 
 @router.get("/summaries")
-async def get_all_summaries(limit: int = 50):
+async def get_all_summaries(limit: int = 50, source_id: Optional[str] = None):
     """
     저장된 모든 요약 목록을 가져옵니다.
+    
+    Args:
+        limit: 최대 반환 개수
+        source_id: 필터링할 소스 ID (channel_id 또는 playlist_id)
     """
     try:
         service = get_youtube_summary_service()
-        summaries = service.get_all_summaries(limit=limit)
+        summaries = service.get_all_summaries(limit=limit, source_id=source_id)
         
         return {
             "summaries": summaries,
-            "total": len(summaries)
+            "total": len(summaries),
+            "filtered_by": source_id
         }
     except Exception as e:
         logger.error(f"Failed to get summaries: {e}")
@@ -142,11 +158,11 @@ async def analyze_video(request: AnalyzeRequest):
             }
         
         # 분석 실행
-        result = service.analyze_video(
+        result = await service.analyze_video(
             request.video_id,
             request.title,
             request.channel_name,
-            request.channel_id
+            request.source_id
         )
         
         if result:
@@ -165,9 +181,13 @@ async def analyze_video(request: AnalyzeRequest):
 
 
 @router.post("/analyze-new")
-async def analyze_new_videos():
+async def analyze_new_videos(max_videos: int = 10, delay_seconds: float = 3.0):
     """
     새 영상을 확인하고 분석합니다.
+    
+    Args:
+        max_videos: 한 번에 분석할 최대 영상 수 (기본 10개, rate limit 보호)
+        delay_seconds: 각 API 호출 사이의 대기 시간 (기본 3초)
     """
     try:
         service = get_youtube_summary_service()
@@ -182,13 +202,18 @@ async def analyze_new_videos():
                 "count": 0
             }
         
-        # 새 영상 분석
-        results = service.check_and_analyze_new_videos()
+        # 새 영상 분석 (rate limit 보호)
+        results = await service.check_and_analyze_new_videos(
+            max_videos=max_videos,
+            delay_seconds=delay_seconds
+        )
         
         return {
             "status": "success",
             "analyzed": results,
-            "count": len(results)
+            "count": len(results),
+            "total_unanalyzed": len(unanalyzed),
+            "remaining": max(0, len(unanalyzed) - len(results))
         }
         
     except Exception as e:
@@ -235,30 +260,30 @@ async def get_channels():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/channels/{channel_id}")
-async def get_channel(channel_id: str):
+@router.get("/channels/{identifier}")
+async def get_channel(identifier: str):
     """
-    특정 채널 정보를 가져옵니다.
+    특정 채널/플레이리스트 정보를 가져옵니다.
     """
     try:
         manager = get_channel_manager()
-        channel = manager.get_channel(channel_id)
+        channel = manager.get_channel(identifier)
         
         if not channel:
-            raise HTTPException(status_code=404, detail="Channel not found")
+            raise HTTPException(status_code=404, detail="Channel/Playlist not found")
         
         return channel
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get channel {channel_id}: {e}")
+        logger.error(f"Failed to get channel {identifier}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/channels")
 async def add_channel(request: ChannelRequest):
     """
-    새 채널을 추가합니다.
+    새 채널 또는 플레이리스트를 추가합니다.
     """
     try:
         manager = get_channel_manager()
@@ -267,76 +292,79 @@ async def add_channel(request: ChannelRequest):
             channel_id=request.channel_id,
             channel_name=request.channel_name,
             custom_prompt=request.custom_prompt,
-            enabled=request.enabled
+            enabled=request.enabled,
+            source_type=request.type,
+            playlist_id=request.playlist_id
         )
         
         if success:
-            channel = manager.get_channel(request.channel_id)
+            identifier = request.playlist_id if request.type == "playlist" else request.channel_id
+            channel = manager.get_channel(identifier)
             return {
                 "status": "success",
-                "message": f"Channel {request.channel_id} added",
+                "message": f"{request.type.capitalize()} added",
                 "channel": channel
             }
         else:
-            raise HTTPException(status_code=400, detail="Channel already exists or failed to add")
+            raise HTTPException(status_code=400, detail=f"{request.type.capitalize()} already exists or failed to add")
             
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to add channel: {e}")
+        logger.error(f"Failed to add {request.type}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/channels/{channel_id}")
-async def update_channel(channel_id: str, request: ChannelUpdateRequest):
+@router.put("/channels/{identifier}")
+async def update_channel(identifier: str, request: ChannelUpdateRequest):
     """
-    채널 정보를 수정합니다.
+    채널/플레이리스트 정보를 수정합니다.
     """
     try:
         manager = get_channel_manager()
         
         success = manager.update_channel(
-            channel_id=channel_id,
+            identifier=identifier,
             channel_name=request.channel_name,
             custom_prompt=request.custom_prompt,
             enabled=request.enabled
         )
         
         if success:
-            channel = manager.get_channel(channel_id)
+            channel = manager.get_channel(identifier)
             return {
                 "status": "success",
-                "message": f"Channel {channel_id} updated",
+                "message": f"Updated successfully",
                 "channel": channel
             }
         else:
-            raise HTTPException(status_code=404, detail="Channel not found")
+            raise HTTPException(status_code=404, detail="Channel/Playlist not found")
             
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update channel {channel_id}: {e}")
+        logger.error(f"Failed to update {identifier}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/channels/{channel_id}")
-async def delete_channel(channel_id: str):
+@router.delete("/channels/{identifier}")
+async def delete_channel(identifier: str):
     """
-    채널을 삭제합니다.
+    채널/플레이리스트를 삭제합니다.
     """
     try:
         manager = get_channel_manager()
-        success = manager.delete_channel(channel_id)
+        success = manager.delete_channel(identifier)
         
         if success:
-            return {"status": "success", "message": f"Channel {channel_id} deleted"}
+            return {"status": "success", "message": f"Deleted successfully"}
         else:
-            raise HTTPException(status_code=404, detail="Channel not found")
+            raise HTTPException(status_code=404, detail="Channel/Playlist not found")
             
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete channel {channel_id}: {e}")
+        logger.error(f"Failed to delete {identifier}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

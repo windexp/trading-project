@@ -121,3 +121,104 @@ pre {
     font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
     line-height: 1.5;
 }
+
+/* ===================================
+   모바일 반응형 - 전략 상세
+   =================================== */
+
+@media (max-width: 768px) {
+    .strategy-header {
+        padding: 10px 12px;
+    }
+    
+    .strategy-header h4 {
+        font-size: 0.95rem;
+    }
+    
+    .strategy-header .badge {
+        font-size: 0.6rem;
+        padding: 3px 6px;
+    }
+    
+    /* Quick Actions 버튼 */
+    #strategy-details-view .card-body.d-grid .btn {
+        font-size: 0.75rem;
+        padding: 8px 10px;
+        min-height: 36px;
+    }
+    
+    /* 스냅샷 테이블 */
+    #snapshotTableContainer {
+        max-height: 280px !important;
+    }
+    
+    #snapshotTableContainer .table th,
+    #snapshotTableContainer .table td {
+        padding: 6px 4px;
+        font-size: 0.7rem;
+    }
+    
+    /* 모달 내 주문 테이블 */
+    #snapshotOrdersBody {
+        font-size: 0.65rem;
+    }
+    
+    .status-dropdown {
+        font-size: 0.65rem !important;
+        min-width: 90px !important;
+        padding: 3px 6px !important;
+    }
+    
+    .status-label {
+        font-size: 0.85rem !important;
+    }
+    
+    /* Pre/Code 블록 */
+    pre {
+        font-size: 0.65rem;
+        padding: 8px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    
+    /* 모달 헤더 */
+    .modal-header {
+        padding: 12px 14px;
+    }
+    
+    .modal-title {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .strategy-header {
+        padding: 8px 10px;
+    }
+    
+    .strategy-header h4 {
+        font-size: 0.85rem;
+    }
+    
+    /* 스냅샷 테이블 일부 열 숨기기 */
+    #snapshotTableContainer .table th:nth-child(1),
+    #snapshotTableContainer .table td:nth-child(1) {
+        display: none; /* ID 열 숨기기 */
+    }
+    
+    #snapshotTableContainer .table th,
+    #snapshotTableContainer .table td {
+        padding: 5px 3px;
+        font-size: 0.65rem;
+    }
+    
+    pre {
+        font-size: 0.6rem;
+    }
+    
+    #strategy-details-view .card-body.d-grid .btn {
+        font-size: 0.7rem;
+        padding: 6px 8px;
+    }
+}

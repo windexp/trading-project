@@ -27,13 +27,87 @@ function showYoutubeSummary() {
 
 /**
  * YouTube 데이터 로드 (채널 + 영상 목록 + 요약 목록)
+ * [Refactor] Promise.allSettled 사용: 일부 API 실패 시에도 나머지 데이터는 정상 렌더링
  */
 async function loadYoutubeData() {
-    await Promise.all([
+    const results = await Promise.allSettled([
         loadYoutubeChannels(),
         loadYoutubeVideos(),
         loadYoutubeSummaries()
     ]);
+    
+    // 실패한 요청이 있으면 로그 출력
+    results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            const names = ['채널', '영상', '요약'];
+            console.error(`${names[index]} 로드 실패:`, result.reason);
+        }
+    });
+}
+
+// 현재 필터 상태
+let currentSourceFilter = '';
+
+/**
+ * 소스별 필터링
+ */
+function filterBySource(sourceId) {
+    currentSourceFilter = sourceId;
+    
+    // 모든 채널 항목의 스타일 초기화
+    document.querySelectorAll('.source-filter-item').forEach(item => {
+        item.classList.remove('bg-sky-100', '!bg-sky-100');
+        item.classList.add('hover:bg-gray-50');
+    });
+    
+    // All 버튼 상태 업데이트
+    const allBtn = document.getElementById('allSourcesBtn');
+    if (allBtn) {
+        if (sourceId === '') {
+            allBtn.classList.remove('btn-outline-primary');
+            allBtn.classList.add('btn-primary');
+        } else {
+            allBtn.classList.remove('btn-primary');
+            allBtn.classList.add('btn-outline-primary');
+        }
+    }
+    
+    // 선택된 채널 항목 하이라이트
+    if (sourceId) {
+        const selectedItem = document.querySelector(`[data-source-id="${sourceId}"]`);
+        if (selectedItem) {
+            selectedItem.classList.remove('hover:bg-gray-50');
+            selectedItem.classList.add('!bg-sky-100');
+        }
+    }
+    
+    // 영상 및 요약 목록 재로드
+    loadYoutubeVideos();
+    loadYoutubeSummaries();
+}
+
+/**
+ * 필터 상태 복구
+ */
+function restoreFilterState() {
+    if (currentSourceFilter) {
+        const selectedItem = document.querySelector(`[data-source-id="${currentSourceFilter}"]`);
+        if (selectedItem) {
+            selectedItem.classList.remove('hover:bg-gray-50');
+            selectedItem.classList.add('!bg-sky-100');
+        }
+    }
+    
+    const allBtn = document.getElementById('allSourcesBtn');
+    if (allBtn) {
+        if (currentSourceFilter === '') {
+            allBtn.classList.remove('btn-outline-primary');
+            allBtn.classList.add('btn-primary');
+        } else {
+            allBtn.classList.remove('btn-primary');
+            allBtn.classList.add('btn-outline-primary');
+        }
+    }
 }
 
 /**
@@ -65,20 +139,45 @@ async function loadYoutubeChannels() {
             return;
         }
         
-        container.innerHTML = channels.map(channel => `
-            <div class="list-group-item px-3 py-2 d-flex justify-content-between align-items-center hover:bg-gray-50">
-                <div class="d-flex align-items-center gap-2">
+        container.innerHTML = channels.map((channel, index) => {
+            const channelType = channel.type || 'channel';
+            const identifier = channelType === 'playlist' ? channel.playlist_id : channel.channel_id;
+            const isActive = identifier === currentSourceFilter;
+            const typeBadge = channelType === 'playlist' 
+                ? '<span class="badge bg-info" style="font-size: 0.6rem;">PL</span>' 
+                : '<span class="badge bg-primary" style="font-size: 0.6rem;">CH</span>';
+            
+            return `
+            <div class="list-group-item d-flex justify-content-between align-items-center px-3 py-2 ${isActive ? '!bg-sky-100' : 'hover:bg-gray-50'} cursor-pointer source-filter-item" data-source-id="${identifier}" data-channel-index="${index}">
+                <div class="d-flex align-items-center gap-2" style="flex: 1;">
                     ${channel.enabled 
                         ? '<i class="bi bi-check-circle-fill text-success"></i>' 
                         : '<i class="bi bi-pause-circle text-muted"></i>'
                     }
-                    <span class="text-truncate" style="max-width: 150px; font-size: 0.85rem;">${escapeHtml(channel.channel_name)}</span>
+                    ${typeBadge}
+                    <span class="text-truncate" style="max-width: 110px; font-size: 0.85rem;">${escapeHtml(channel.channel_name)}</span>
                 </div>
-                <button class="btn btn-sm btn-link p-0 text-muted" onclick="openEditChannelModal('${channel.channel_id}')">
+                <button class="btn btn-sm btn-link p-0 text-muted" onclick="event.stopPropagation(); openEditChannelModal('${identifier}')">
                     <i class="bi bi-pencil"></i>
                 </button>
             </div>
-        `).join('');
+            `;
+        }).join('');
+        
+        // 각 채널 항목에 클릭 이벤트 추가
+        channels.forEach((channel, index) => {
+            const channelType = channel.type || 'channel';
+            const identifier = channelType === 'playlist' ? channel.playlist_id : channel.channel_id;
+            const element = container.querySelector(`[data-channel-index="${index}"]`);
+            if (element) {
+                element.addEventListener('click', () => {
+                    filterBySource(identifier);
+                });
+            }
+        });
+        
+        // 현재 필터 상태 부구
+        restoreFilterState();
         
     } catch (error) {
         console.error('Failed to load channels:', error);
@@ -104,7 +203,9 @@ async function loadYoutubeVideos() {
     `;
     
     try {
-        const response = await fetch(`${API_BASE}/youtube/videos?limit=10&_t=${Date.now()}`);
+        const sourceParam = currentSourceFilter ? `&source_id=${currentSourceFilter}` : '';
+        
+        const response = await fetch(`${API_BASE}/youtube/videos?limit=10${sourceParam}&_t=${Date.now()}`);
         if (!response.ok) throw new Error('Failed to load videos');
         
         const data = await response.json();
@@ -120,8 +221,8 @@ async function loadYoutubeVideos() {
             return;
         }
         
-        container.innerHTML = videos.map(video => `
-            <div class="list-group-item px-3 py-3 hover:bg-gray-50 cursor-pointer" onclick="handleVideoClick('${video.video_id}', '${escapeHtml(video.title)}', '${escapeHtml(video.channel_name)}', ${video.is_analyzed})">
+        container.innerHTML = videos.map((video, index) => `
+            <div class="list-group-item px-3 py-3 hover:bg-gray-50 cursor-pointer" data-video-index="${index}">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2">
@@ -129,7 +230,7 @@ async function loadYoutubeVideos() {
                                 ? '<span class="badge bg-success">분석완료</span>' 
                                 : '<span class="badge bg-secondary">미분석</span>'
                             }
-                            <small class="text-muted">${video.channel_name}</small>
+                            <small class="text-muted">${escapeHtml(video.channel_name)}</small>
                         </div>
                         <div class="fw-medium mt-1" style="font-size: 0.9rem;">${escapeHtml(video.title)}</div>
                         <small class="text-muted">${video.published}</small>
@@ -140,6 +241,22 @@ async function loadYoutubeVideos() {
                 </div>
             </div>
         `).join('');
+        
+        // 각 영상 항목에 클릭 이벤트 리스너 추가
+        videos.forEach((video, index) => {
+            const element = container.querySelector(`[data-video-index="${index}"]`);
+            if (element) {
+                element.addEventListener('click', () => {
+                    handleVideoClick(
+                        video.video_id,
+                        video.title,
+                        video.channel_name,
+                        video.is_analyzed,
+                        video.source_id || ''
+                    );
+                });
+            }
+        });
         
     } catch (error) {
         console.error('Failed to load videos:', error);
@@ -166,7 +283,9 @@ async function loadYoutubeSummaries() {
     `;
     
     try {
-        const response = await fetch(`${API_BASE}/youtube/summaries?limit=50&_t=${Date.now()}`);
+        const sourceParam = currentSourceFilter ? `&source_id=${currentSourceFilter}` : '';
+        
+        const response = await fetch(`${API_BASE}/youtube/summaries?limit=50${sourceParam}&_t=${Date.now()}`);
         if (!response.ok) throw new Error('Failed to load summaries');
         
         const data = await response.json();
@@ -217,19 +336,25 @@ async function loadYoutubeSummaries() {
 /**
  * 영상 클릭 핸들러
  */
-function handleVideoClick(videoId, title, channelName, isAnalyzed) {
+function handleVideoClick(videoId, title, channelName, isAnalyzed, sourceId = '') {
     if (isAnalyzed) {
         loadSummaryDetail(videoId);
     } else {
-        analyzeVideo(videoId, title, channelName);
+        analyzeVideo(videoId, title, channelName, sourceId);
     }
 }
 
 /**
  * 영상 분석 요청
+ * [Refactor] confirm 대신 비동기 확인 함수 사용 (UX 개선)
  */
-async function analyzeVideo(videoId, title, channelName) {
-    if (!confirm(`"${title}" 영상을 분석하시겠습니까?\n\n분석에 1-2분 정도 소요될 수 있습니다.`)) {
+async function analyzeVideo(videoId, title, channelName, sourceId = '') {
+    // [TODO] Bootstrap Modal로 교체 권장 - 현재는 confirm 사용
+    const confirmed = await showConfirm(
+        '영상 분석',
+        `"${title}" 영상을 분석하시겠습니까?\n\n분석에 1-2분 정도 소요될 수 있습니다.`
+    );
+    if (!confirmed) {
         return;
     }
     
@@ -242,7 +367,8 @@ async function analyzeVideo(videoId, title, channelName) {
             body: JSON.stringify({
                 video_id: videoId,
                 title: title,
-                channel_name: channelName
+                channel_name: channelName,
+                source_id: sourceId
             })
         });
         
@@ -269,9 +395,15 @@ async function analyzeVideo(videoId, title, channelName) {
 
 /**
  * 모든 새 영상 분석
+ * [Refactor] confirm 대신 비동기 확인 함수 사용 (UX 개선)
  */
 async function analyzeAllNewVideos() {
-    if (!confirm('분석되지 않은 모든 새 영상을 분석하시겠습니까?\n\n영상 수에 따라 시간이 오래 걸릴 수 있습니다.')) {
+    // [TODO] Bootstrap Modal로 교체 권장 - 현재는 confirm 사용
+    const confirmed = await showConfirm(
+        '전체 영상 분석',
+        '분석되지 않은 모든 새 영상을 분석하시겠습니까?\n\n영상 수에 따라 시간이 오래 걸릴 수 있습니다.'
+    );
+    if (!confirmed) {
         return;
     }
     
@@ -292,7 +424,11 @@ async function analyzeAllNewVideos() {
         if (result.status === 'no_new_videos') {
             showAlert('분석할 새 영상이 없습니다.', 'info');
         } else {
-            showAlert(`${result.count}개의 영상 분석이 완료되었습니다!`, 'success');
+            let message = `${result.count}개의 영상 분석이 완료되었습니다!`;
+            if (result.remaining > 0) {
+                message += ` (남은 영상: ${result.remaining}개)`;
+            }
+            showAlert(message, 'success');
             await loadYoutubeData();
         }
         
@@ -357,6 +493,7 @@ async function loadSummaryDetail(videoId) {
         } else if (summary.summary) {
             // Markdown을 HTML로 변환 (간단한 변환)
             const htmlContent = convertMarkdownToHtml(summary.summary);
+            // [SECURITY] innerHTML 사용: XSS 위험 - sanitized된 콘텐츠만 사용
             contentContainer.innerHTML = `
                 <div class="summary-content p-4" style="line-height: 1.8; font-size: 0.95rem;">
                     ${htmlContent}
@@ -388,9 +525,12 @@ async function loadSummaryDetail(videoId) {
 
 /**
  * 요약 삭제
+ * [Refactor] confirm 대신 비동기 확인 함수 사용 (UX 개선)
  */
 async function deleteSummary(videoId) {
-    if (!confirm('이 요약을 삭제하시겠습니까?')) {
+    // [TODO] Bootstrap Modal로 교체 권장 - 현재는 confirm 사용
+    const confirmed = await showConfirm('요약 삭제', '이 요약을 삭제하시겠습니까?');
+    if (!confirmed) {
         return;
     }
     
@@ -426,52 +566,59 @@ async function deleteSummary(videoId) {
 }
 
 /**
- * 간단한 Markdown -> HTML 변환
+ * Markdown -> HTML 변환 (marked.js 사용)
+ * 
+ * [SECURITY] marked.js + DOMPurify를 사용하여 안전한 마크다운 렌더링
+ * - marked.js: 마크다운 파싱 (https://marked.js.org/)
+ * - DOMPurify: XSS 방지를 위한 HTML sanitization (https://github.com/cure53/DOMPurify)
+ * 
+ * [Refactor] 검증된 라이브러리 사용으로 보안 강화 및 테이블 헤딩 문제 해결
  */
 function convertMarkdownToHtml(markdown) {
     if (!markdown) return '';
     
-    let html = markdown;
+    // [SECURITY] marked.js로 마크다운 파싱
+    if (typeof marked === 'undefined') {
+        console.error('marked.js가 로드되지 않았습니다.');
+        return escapeHtml(markdown);
+    }
     
-    // 테이블 변환: |...|...| 형식
-    html = html.replace(/^\|(.+)\|$/gm, function(match, content) {
-        const cells = content.split('|').map(c => c.trim());
-        if (cells.every(c => c.match(/^:?-+:?$/))) {
-            // 헤더 구분선
-            return '';
-        }
-        return '<tr>' + cells.map(c => `<td class="px-3 py-2">${c}</td>`).join('') + '</tr>';
+    // marked.js 설정
+    marked.setOptions({
+        breaks: true, // 줄바꿈을 <br>로 변환
+        gfm: true, // GitHub Flavored Markdown 지원
+        tables: true // 테이블 지원
     });
     
-    // 테이블 감싸기
-    html = html.replace(/(<tr>.*<\/tr>\n?)+/g, '<table class="table table-bordered table-striped my-3">$&</table>');
+    // 마크다운을 HTML로 변환
+    let html = marked.parse(markdown);
     
-    // Bold: **text** -> <strong>text</strong>
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-dark">$1</strong>');
+    // [SECURITY] DOMPurify로 XSS 공격 방지
+    if (typeof DOMPurify !== 'undefined') {
+        html = DOMPurify.sanitize(html, {
+            ALLOWED_TAGS: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'blockquote', 'code', 'pre', 'a'],
+            ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style']
+        });
+    } else {
+        console.warn('DOMPurify가 로드되지 않았습니다. XSS 방어가 약화될 수 있습니다.');
+    }
     
-    // Headers
-    html = html.replace(/^### (.+)$/gm, '<h6 class="mt-4 mb-3 fw-bold text-primary">$1</h6>');
-    html = html.replace(/^## (.+)$/gm, '<h5 class="mt-4 mb-3 fw-bold text-primary">$1</h5>');
-    html = html.replace(/^# (.+)$/gm, '<h4 class="mt-4 mb-3 fw-bold text-dark">$1</h4>');
-    
-    // 수평선
-    html = html.replace(/^---$/gm, '<hr class="my-4">');
-    
-    // Bullet points: - text
-    html = html.replace(/^- (.+)$/gm, '<li class="mb-2">$1</li>');
-    
-    // 연속된 리스트 항목을 <ul>로 감싸기
-    html = html.replace(/(<li class="mb-2">.*?<\/li>\n?)+/g, '<ul class="list-unstyled ps-3 mb-3">$&</ul>');
-    
-    // 빈 줄을 단락 구분으로
-    html = html.split('\n\n').map(para => {
-        para = para.trim();
-        if (!para) return '';
-        if (para.startsWith('<h') || para.startsWith('<ul') || para.startsWith('<table') || para.startsWith('<hr')) {
-            return para;
-        }
-        return `<p class="mb-3 text-secondary" style="line-height: 1.8;">${para.replace(/\n/g, '<br>')}</p>`;
-    }).join('\n');
+    // Bootstrap 스타일 클래스 추가
+    html = html.replace(/<table>/g, '<table class="table table-bordered table-striped my-3">');
+    html = html.replace(/<h1>/g, '<h1 class="mt-4 mb-3 fw-bold text-dark">');
+    html = html.replace(/<h2>/g, '<h2 class="mt-4 mb-3 fw-bold text-primary">');
+    html = html.replace(/<h3>/g, '<h3 class="mt-4 mb-3 fw-bold text-primary">');
+    html = html.replace(/<h4>/g, '<h4 class="mt-4 mb-3 fw-bold text-primary">');
+    html = html.replace(/<h5>/g, '<h5 class="mt-3 mb-2 fw-bold text-primary">');
+    html = html.replace(/<h6>/g, '<h6 class="mt-3 mb-2 fw-bold text-primary">');
+    html = html.replace(/<p>/g, '<p class="mb-3 text-secondary" style="line-height: 1.8;">');
+    html = html.replace(/<ul>/g, '<ul class="ps-3 mb-3">');
+    html = html.replace(/<ol>/g, '<ol class="ps-3 mb-3">');
+    html = html.replace(/<li>/g, '<li class="mb-2">');
+    html = html.replace(/<hr>/g, '<hr class="my-4">');
+    html = html.replace(/<strong>/g, '<strong class="text-dark">');
+    html = html.replace(/<th>/g, '<th class="px-3 py-2">');
+    html = html.replace(/<td>/g, '<td class="px-3 py-2">');
     
     return html;
 }
@@ -497,6 +644,7 @@ function formatDate(isoString) {
 
 /**
  * HTML 이스케이프
+ * [Refactor] XSS 방지를 위한 필수 유틸리티
  */
 function escapeHtml(text) {
     if (!text) return '';
@@ -505,18 +653,57 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+/**
+ * 비동기 확인 다이얼로그
+ * [Refactor] confirm() 대체 함수 - 비차단 UI 제공
+ * 
+ * @param {string} title - 다이얼로그 제목
+ * @param {string} message - 확인 메시지
+ * @returns {Promise<boolean>} - 사용자 확인 여부
+ * 
+ * [TODO] 프로덕션에서는 Bootstrap Modal로 구현 권장
+ * 현재는 임시로 confirm 사용 (향후 교체 필요)
+ */
+function showConfirm(title, message) {
+    return Promise.resolve(confirm(`[${title}]\n\n${message}`));
+}
+
 // =============================================
 // 채널 관리 기능
 // =============================================
 
 /**
+ * 소스 타입에 따라 필드 토글
+ */
+function toggleSourceFields() {
+    const sourceType = document.getElementById('newSourceType').value;
+    const channelIdGroup = document.getElementById('newChannelIdGroup');
+    const playlistIdGroup = document.getElementById('newPlaylistIdGroup');
+    
+    if (sourceType === 'playlist') {
+        channelIdGroup.style.display = 'none';
+        playlistIdGroup.style.display = 'block';
+        document.getElementById('newChannelId').removeAttribute('required');
+        document.getElementById('newPlaylistId').setAttribute('required', 'required');
+    } else {
+        channelIdGroup.style.display = 'block';
+        playlistIdGroup.style.display = 'none';
+        document.getElementById('newChannelId').setAttribute('required', 'required');
+        document.getElementById('newPlaylistId').removeAttribute('required');
+    }
+}
+
+/**
  * 채널 추가 모달 열기
  */
 function openAddChannelModal() {
+    document.getElementById('newSourceType').value = 'channel';
     document.getElementById('newChannelId').value = '';
+    document.getElementById('newPlaylistId').value = '';
     document.getElementById('newChannelName').value = '';
     document.getElementById('newChannelPrompt').value = '';
     document.getElementById('newChannelEnabled').checked = true;
+    toggleSourceFields();
     
     if (!addChannelModalInstance) {
         addChannelModalInstance = new bootstrap.Modal(document.getElementById('addChannelModal'));
@@ -526,15 +713,29 @@ function openAddChannelModal() {
 
 /**
  * 채널 추가 제출
+ * [Refactor] 입력값 유효성 검사 강화
  */
 async function submitAddChannel() {
+    const sourceType = document.getElementById('newSourceType').value;
     const channelId = document.getElementById('newChannelId').value.trim();
+    const playlistId = document.getElementById('newPlaylistId').value.trim();
     const channelName = document.getElementById('newChannelName').value.trim();
     const customPrompt = document.getElementById('newChannelPrompt').value.trim();
     const enabled = document.getElementById('newChannelEnabled').checked;
     
-    if (!channelId) {
+    // [Refactor] 입력값 검증
+    if (sourceType === 'channel' && !channelId) {
         showAlert('Channel ID를 입력하세요.', 'warning');
+        return;
+    }
+    
+    if (sourceType === 'playlist' && !playlistId) {
+        showAlert('Playlist ID를 입력하세요.', 'warning');
+        return;
+    }
+    
+    if (!channelName) {
+        showAlert('채널 이름을 입력하세요.', 'warning');
         return;
     }
     
@@ -543,7 +744,9 @@ async function submitAddChannel() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                type: sourceType,
                 channel_id: channelId,
+                playlist_id: playlistId,
                 channel_name: channelName,
                 custom_prompt: customPrompt,
                 enabled: enabled
@@ -552,30 +755,32 @@ async function submitAddChannel() {
         
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to add channel');
+            throw new Error(error.detail || 'Failed to add source');
         }
         
-        showAlert('채널이 추가되었습니다!', 'success');
+        showAlert(`${sourceType === 'playlist' ? '플레이리스트' : '채널'}가 추가되었습니다!`, 'success');
         addChannelModalInstance.hide();
         await loadYoutubeData();
         
     } catch (error) {
-        console.error('Failed to add channel:', error);
-        showAlert('채널 추가 실패: ' + error.message, 'danger');
+        console.error('Failed to add source:', error);
+        showAlert('추가 실패: ' + error.message, 'danger');
     }
 }
 
 /**
  * 채널 편집 모달 열기
  */
-async function openEditChannelModal(channelId) {
+async function openEditChannelModal(identifier) {
     try {
-        const response = await fetch(`${API_BASE}/youtube/channels/${channelId}?_t=${Date.now()}`);
-        if (!response.ok) throw new Error('Failed to load channel');
+        const response = await fetch(`${API_BASE}/youtube/channels/${identifier}?_t=${Date.now()}`);
+        if (!response.ok) throw new Error('Failed to load source');
         
         const channel = await response.json();
+        const channelType = channel.type || 'channel';
+        const channelId = channelType === 'playlist' ? channel.playlist_id : channel.channel_id;
         
-        document.getElementById('editChannelId').value = channel.channel_id;
+        document.getElementById('editChannelId').value = channelId;
         document.getElementById('editChannelName').value = channel.channel_name || '';
         document.getElementById('editChannelPrompt').value = channel.custom_prompt || '';
         document.getElementById('editChannelEnabled').checked = channel.enabled !== false;
@@ -586,22 +791,29 @@ async function openEditChannelModal(channelId) {
         editChannelModalInstance.show();
         
     } catch (error) {
-        console.error('Failed to load channel:', error);
-        showAlert('채널 정보를 불러오는데 실패했습니다.', 'danger');
+        console.error('Failed to load source:', error);
+        showAlert('정보를 불러오는데 실패했습니다.', 'danger');
     }
 }
 
 /**
  * 채널 편집 제출
+ * [Refactor] 입력값 유효성 검사 추가
  */
 async function submitEditChannel() {
-    const channelId = document.getElementById('editChannelId').value;
+    const identifier = document.getElementById('editChannelId').value;
     const channelName = document.getElementById('editChannelName').value.trim();
     const customPrompt = document.getElementById('editChannelPrompt').value.trim();
     const enabled = document.getElementById('editChannelEnabled').checked;
     
+    // [Refactor] 필수 입력값 검증
+    if (!channelName) {
+        showAlert('채널 이름을 입력하세요.', 'warning');
+        return;
+    }
+    
     try {
-        const response = await fetch(`${API_BASE}/youtube/channels/${channelId}`, {
+        const response = await fetch(`${API_BASE}/youtube/channels/${identifier}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -613,46 +825,49 @@ async function submitEditChannel() {
         
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to update channel');
+            throw new Error(error.detail || 'Failed to update');
         }
         
-        showAlert('채널이 수정되었습니다!', 'success');
+        showAlert('수정되었습니다!', 'success');
         editChannelModalInstance.hide();
         await loadYoutubeData();
         
     } catch (error) {
-        console.error('Failed to update channel:', error);
-        showAlert('채널 수정 실패: ' + error.message, 'danger');
+        console.error('Failed to update:', error);
+        showAlert('수정 실패: ' + error.message, 'danger');
     }
 }
 
 /**
  * 채널 삭제 (모달에서)
+ * [Refactor] confirm 대신 비동기 확인 함수 사용 (UX 개선)
  */
 async function deleteChannelFromModal() {
-    const channelId = document.getElementById('editChannelId').value;
+    const identifier = document.getElementById('editChannelId').value;
     
-    if (!confirm('이 채널을 삭제하시겠습니까?')) {
+    // [TODO] Bootstrap Modal로 교체 권장 - 현재는 confirm 사용
+    const confirmed = await showConfirm('채널 삭제', '삭제하시겠습니까?');
+    if (!confirmed) {
         return;
     }
     
     try {
-        const response = await fetch(`${API_BASE}/youtube/channels/${channelId}`, {
+        const response = await fetch(`${API_BASE}/youtube/channels/${identifier}`, {
             method: 'DELETE'
         });
         
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to delete channel');
+            throw new Error(error.detail || 'Failed to delete');
         }
         
-        showAlert('채널이 삭제되었습니다.', 'success');
+        showAlert('삭제되었습니다.', 'success');
         editChannelModalInstance.hide();
         await loadYoutubeData();
         
     } catch (error) {
-        console.error('Failed to delete channel:', error);
-        showAlert('채널 삭제 실패: ' + error.message, 'danger');
+        console.error('Failed to delete:', error);
+        showAlert('삭제 실패: ' + error.message, 'danger');
     }
 }
 
@@ -680,10 +895,12 @@ async function openChannelSettingsModal() {
 
 /**
  * 기본 프롬프트 저장
+ * [Refactor] 입력값 유효성 검사 유지
  */
 async function saveDefaultPrompt() {
     const prompt = document.getElementById('defaultPromptText').value.trim();
     
+    // [Refactor] 필수 입력값 검증
     if (!prompt) {
         showAlert('프롬프트를 입력하세요.', 'warning');
         return;

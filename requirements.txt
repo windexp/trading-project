@@ -17,6 +17,7 @@ discord.py>=2.3.0
 
 # AI (Gemini)
 google-genai>=0.1.0
+google-api-core>=2.15.0
 
 # YouTube RSS Feed
 feedparser>=6.0.0

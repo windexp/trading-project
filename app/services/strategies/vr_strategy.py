@@ -138,6 +138,7 @@ class VRStrategy(BaseStrategy):
             "pool": self.initial_investment,
             "avg_price": 0,
             "equity": self.initial_investment,
+            "amount": 0,
             "cycle_profit": 0,
             "cycle_price": current_price,
             "snapshot_trade": {"buy": {"qty": 0, "amt": 0}, "sell": {"qty": 0, "amt": 0}}
@@ -226,6 +227,7 @@ class VRStrategy(BaseStrategy):
         new_state['qty'] = new_qty
         new_state['pool'] = new_pool    
         new_state['avg_price'] = new_avg
+        new_state['amount'] = new_qty * current_price
         new_state['equity'] = equity
         new_state['cycle_profit'] = cycle_profit
         new_state['cycle_price'] = current_price

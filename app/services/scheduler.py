@@ -412,8 +412,9 @@ class StrategyScheduler:
             
             logger.info(f"Found {len(unanalyzed)} new video(s) to analyze")
             
-            # 새 영상 분석
-            results = service.check_and_analyze_new_videos()
+            # 새 영상 분석 (async 함수이므로 asyncio.run 사용)
+            import asyncio
+            results = asyncio.run(service.check_and_analyze_new_videos())
             
             success_count = sum(1 for r in results if r.get('summary') and not r.get('error'))
             error_count = len(results) - success_count
