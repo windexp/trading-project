@@ -798,6 +798,28 @@ pre {
 }
 
 /* ===================================
+   YouTube 뷰 스타일 (데스크탑용)
+   =================================== */
+
+/* 데스크탑에서는 flex로 늘어나게 */
+@media (min-width: 769px) {
+    #youtubeSummariesCard {
+        flex: 1;
+        min-height: 0;
+    }
+    
+    #youtubeVideosCard {
+        flex: 1;
+        min-height: 0;
+    }
+    
+    #youtubeSummariesCard .card-body,
+    #youtubeVideosCard .card-body {
+        overflow-y: auto;
+    }
+}
+
+/* ===================================
    모바일 반응형 스타일
    =================================== */
 
@@ -1047,6 +1069,30 @@ pre {
     #youtube-view .col-md-8 {
         height: auto !important;
         min-height: 250px;
+    }
+    
+    /* Summaries 블록 - 높이 제한 및 스크롤 */
+    #youtubeSummariesCard {
+        max-height: 300px !important;
+        flex: none !important;
+        min-height: auto !important;
+    }
+    
+    #youtubeSummariesCard .card-body {
+        overflow-y: auto !important;
+        max-height: 250px !important;
+    }
+    
+    /* Latest Videos 블록 - 높이 제한 및 스크롤 */
+    #youtubeVideosCard {
+        max-height: 350px !important;
+        flex: none !important;
+        min-height: auto !important;
+    }
+    
+    #youtubeVideosCard .card-body {
+        overflow-y: auto !important;
+        max-height: 300px !important;
     }
     
     #youtubeChannelsList .list-group-item,
