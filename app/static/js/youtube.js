@@ -478,6 +478,9 @@ async function loadSummaryDetail(videoId) {
             <a href="${summary.url}" target="_blank" class="btn btn-sm btn-outline-secondary ms-2">
                 <i class="bi bi-youtube me-1"></i>영상 보기
             </a>
+            <button class="btn btn-sm btn-outline-primary ms-2" onclick="reanalyzeSummary('${videoId}', '${escapeHtml(summary.title)}', '${escapeHtml(summary.channel_name)}', '${summary.source_id || ''}')">
+                <i class="bi bi-arrow-clockwise me-1"></i>다시 분석
+            </button>
             <button class="btn btn-sm btn-outline-danger ms-2" onclick="deleteSummary('${videoId}')">
                 <i class="bi bi-trash me-1"></i>삭제
             </button>
@@ -562,6 +565,55 @@ async function deleteSummary(videoId) {
     } catch (error) {
         console.error('Failed to delete summary:', error);
         showAlert('요약 삭제에 실패했습니다: ' + error.message, 'danger');
+    }
+}
+
+/**
+ * 요약 다시 분석
+ * 기존 요약이 있는 영상을 다시 분석
+ */
+async function reanalyzeSummary(videoId, title, channelName, sourceId = '') {
+    const confirmed = await showConfirm(
+        '영상 다시 분석',
+        `"${title}" 영상을 다시 분석하시겠습니까?\n\n기존 요약을 덮어쓰며, 분석에 1-2분 정도 소요될 수 있습니다.`
+    );
+    if (!confirmed) {
+        return;
+    }
+    
+    showAlert('영상 다시 분석 중...', 'info');
+    
+    try {
+        const response = await fetch(`${API_BASE}/youtube/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_id: videoId,
+                title: title,
+                channel_name: channelName,
+                source_id: sourceId,
+                force: true  // 기존 요약이 있어도 다시 분석
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to reanalyze video');
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success' || result.status === 'already_analyzed') {
+            showAlert('영상 분석이 완료되었습니다!', 'success');
+            await loadYoutubeData();
+            loadSummaryDetail(videoId);
+        } else {
+            throw new Error('Reanalysis failed');
+        }
+        
+    } catch (error) {
+        console.error('Failed to reanalyze video:', error);
+        showAlert('영상 다시 분석에 실패했습니다: ' + error.message, 'danger');
     }
 }
 
